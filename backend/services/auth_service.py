@@ -24,7 +24,8 @@ from backend.core.exceptions import (
     InvalidTokenError,
     ProviderNotEnabledError,
     UserAlreadyExistsError,
-    UserInactiveError
+    UserInactiveError,
+    NotImplementedEndpointError
 )
 
 
@@ -208,6 +209,7 @@ class AuthService:
 
         Raises:
             ProviderNotEnabledError: If OAuth is not enabled
+            NotImplementedEndpointError: OAuth implementation pending
         """
         if not settings.oauth_enabled:
             raise ProviderNotEnabledError("OAuth")
@@ -219,8 +221,7 @@ class AuthService:
         # 3. Find or create user
         # 4. Update last login
 
-        # For now, raise NotImplementedError
-        raise NotImplementedError("OAuth authentication not yet implemented")
+        raise NotImplementedEndpointError("OAuth authentication is not yet fully implemented")
 
     async def authenticate_oidc(self, id_token: str) -> User:
         """
@@ -234,6 +235,7 @@ class AuthService:
 
         Raises:
             ProviderNotEnabledError: If OIDC is not enabled
+            NotImplementedEndpointError: OIDC implementation pending
         """
         if not settings.oidc_enabled:
             raise ProviderNotEnabledError("OIDC")
@@ -245,8 +247,7 @@ class AuthService:
         # 3. Find or create user
         # 4. Update last login
 
-        # For now, raise NotImplementedError
-        raise NotImplementedError("OIDC authentication not yet implemented")
+        raise NotImplementedEndpointError("OIDC authentication is not yet fully implemented")
 
     async def _create_sso_user(
         self,

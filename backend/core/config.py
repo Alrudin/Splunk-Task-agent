@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     saml_enabled: bool = Field(default=False, description="Enable SAML SSO")
     saml_metadata_url: Optional[str] = Field(default=None, description="SAML IdP metadata URL")
     saml_entity_id: Optional[str] = Field(default=None, description="SAML Service Provider entity ID")
+    saml_login_url: Optional[str] = Field(default=None, description="SAML SP-initiated login URL")
 
     # Auth Provider Settings - OAuth
     oauth_enabled: bool = Field(default=False, description="Enable OAuth authentication")
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     oidc_client_id: Optional[str] = Field(default=None, description="OIDC client ID")
     oidc_client_secret: Optional[str] = Field(default=None, description="OIDC client secret")
     oidc_discovery_url: Optional[str] = Field(default=None, description="OIDC discovery URL")
+    oidc_authorize_url: Optional[str] = Field(default=None, description="OIDC authorization endpoint URL")
 
     # Application Settings
     app_name: str = Field(default="Splunk TA Generator", description="Application name")

@@ -56,6 +56,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tokens, setTokens] = useState<AuthTokens | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Helper function to normalize backend user data to frontend format
+  const normalizeUser = (backendUser: any): User => {
+    return {
+      id: backendUser.id,
+      username: backendUser.username,
+      email: backendUser.email,
+      fullName: backendUser.full_name,
+      isActive: backendUser.is_active,
+      authProvider: backendUser.auth_provider,
+      roles: backendUser.roles,
+      lastLogin: backendUser.last_login,
+      createdAt: backendUser.created_at,
+    };
+  };
+
   // Initialize auth state from localStorage
   useEffect(() => {
     const initAuth = async () => {
@@ -69,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           // Validate token by fetching user info
           const response = await apiClient.get('/auth/me');
-          setUser(response.data);
+          setUser(normalizeUser(response.data));
           setTokens({
             accessToken,
             refreshToken,
@@ -139,8 +154,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set axios header
       setAuthToken(tokenData.access_token);
 
-      // Update state
-      setUser(userData);
+      // Update state with normalized user data
+      setUser(normalizeUser(userData));
       setTokens({
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
@@ -227,12 +242,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set axios header
       setAuthToken(tokenData.access_token);
 
-      // Update state
-      setTokens((prev) => ({
-        ...prev!,
-        accessToken: tokenData.access_token,
-        expiresIn: tokenData.expires_in,
-      }));
+      // Update state - guard against null previous state
+      setTokens((prev) => {
+        if (prev) {
+          return {
+            ...prev,
+            accessToken: tokenData.access_token,
+            expiresIn: tokenData.expires_in,
+          };
+        } else {
+          // Create new tokens object if prev is null
+          return {
+            accessToken: tokenData.access_token,
+            refreshToken: refreshTokenValue,
+            tokenType: tokenData.token_type || 'bearer',
+            expiresIn: tokenData.expires_in,
+          };
+        }
+      });
     } catch (error) {
       console.error('Token refresh failed:', error);
       throw error;

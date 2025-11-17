@@ -19,12 +19,12 @@ from backend.core.exceptions import (
 )
 
 
-def get_token_from_header(authorization: str = Header(...)) -> str:
+def get_token_from_header(authorization: str = Header(None)) -> str:
     """
     Extract Bearer token from Authorization header.
 
     Args:
-        authorization: Authorization header value
+        authorization: Authorization header value (optional)
 
     Returns:
         JWT token string

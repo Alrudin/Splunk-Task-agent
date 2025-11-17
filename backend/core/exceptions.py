@@ -104,6 +104,16 @@ class UserAlreadyExistsError(AppException):
         )
 
 
+class NotImplementedEndpointError(AppException):
+    """Endpoint not yet implemented."""
+
+    def __init__(self, detail: str = "This endpoint is not yet implemented"):
+        super().__init__(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=detail
+        )
+
+
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     """
     Global exception handler for AppException instances.

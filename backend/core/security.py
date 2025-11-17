@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any
 from passlib.context import CryptContext
 from jose import jwt, JWTError
+from jose.exceptions import ExpiredSignatureError
 
 from backend.core.config import settings
 from backend.core.exceptions import TokenExpiredError, InvalidTokenError
@@ -88,7 +89,7 @@ def decode_jwt_token(token: str) -> Dict[str, Any]:
             algorithms=[settings.jwt_algorithm]
         )
         return payload
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         raise TokenExpiredError()
     except JWTError:
         raise InvalidTokenError()

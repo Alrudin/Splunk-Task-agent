@@ -53,9 +53,9 @@ async def get_auth_providers() -> AuthProvidersResponse:
         saml_enabled=settings.saml_enabled,
         oauth_enabled=settings.oauth_enabled,
         oidc_enabled=settings.oidc_enabled,
-        saml_login_url=settings.saml_metadata_url if settings.saml_enabled else None,
+        saml_login_url=settings.saml_login_url if settings.saml_enabled else None,
         oauth_authorize_url=settings.oauth_authorize_url if settings.oauth_enabled else None,
-        oidc_authorize_url=settings.oidc_discovery_url if settings.oidc_enabled else None
+        oidc_authorize_url=settings.oidc_authorize_url if settings.oidc_enabled else None
     )
 
 
@@ -177,16 +177,38 @@ async def saml_callback(
     auth_service: AuthService = Depends(get_auth_service)
 ) -> LoginResponse:
     """Handle SAML SSO callback."""
-    # TODO: Parse and validate SAML response
-    # For now, this is a placeholder
-    saml_data = {
-        "subject": "saml_user_id",
-        "email": "user@example.com",
-        "name": "SAML User"
-    }
+    # Check if SAML is enabled
+    if not settings.saml_enabled:
+        raise ProviderNotEnabledError("SAML")
 
-    # Authenticate user
-    user = await auth_service.authenticate_saml(saml_data)
+    # TODO: Implement real SAML response parsing and validation
+    # The following is a placeholder implementation:
+    # 1. Decode base64-encoded SAML response
+    # 2. Parse XML and validate signature
+    # 3. Extract user attributes (subject, email, name)
+    # 4. Validate assertions and conditions
+    #
+    # For production, integrate with python3-saml or similar library:
+    # from onelogin.saml2.auth import OneLogin_Saml2_Auth
+    # from onelogin.saml2.utils import OneLogin_Saml2_Utils
+    #
+    # Example:
+    # auth = OneLogin_Saml2_Auth(request_data, saml_settings)
+    # auth.process_response()
+    # errors = auth.get_errors()
+    # if len(errors) == 0:
+    #     saml_data = {
+    #         "subject": auth.get_nameid(),
+    #         "email": auth.get_attribute("email")[0],
+    #         "name": auth.get_attribute("name")[0]
+    #     }
+
+    # Placeholder: This will fail in production until real SAML parsing is implemented
+    from backend.core.exceptions import NotImplementedEndpointError
+    raise NotImplementedEndpointError(
+        "SAML authentication requires integration with a SAML library. "
+        "Please configure python3-saml or onelogin-saml and implement response parsing."
+    )
 
     # Generate tokens
     roles = [role.name for role in user.roles]
@@ -240,7 +262,11 @@ async def oauth_callback(
     auth_service: AuthService = Depends(get_auth_service)
 ) -> LoginResponse:
     """Handle OAuth callback."""
-    # Authenticate user (will raise NotImplementedError for now)
+    # Check if OAuth is enabled
+    if not settings.oauth_enabled:
+        raise ProviderNotEnabledError("OAuth")
+
+    # Authenticate user
     user = await auth_service.authenticate_oauth(request.code)
 
     # Generate tokens
@@ -295,7 +321,11 @@ async def oidc_callback(
     auth_service: AuthService = Depends(get_auth_service)
 ) -> LoginResponse:
     """Handle OIDC callback."""
-    # Authenticate user (will raise NotImplementedError for now)
+    # Check if OIDC is enabled
+    if not settings.oidc_enabled:
+        raise ProviderNotEnabledError("OIDC")
+
+    # Authenticate user
     user = await auth_service.authenticate_oidc(request.id_token)
 
     # Generate tokens
