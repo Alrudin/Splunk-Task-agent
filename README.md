@@ -130,11 +130,17 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run database migrations (when available)
-# alembic upgrade head
+# Run database migrations
+alembic upgrade head
+
+# Seed initial roles
+python -m backend.scripts.seed_roles
+
+# Create admin user
+python -m backend.scripts.create_admin
 
 # Start the FastAPI server
-# uvicorn main:app --reload --port 8000
+uvicorn backend.main:app --reload --port 8000
 ```
 
 ### 6. Frontend Setup
