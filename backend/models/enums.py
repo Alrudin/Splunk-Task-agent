@@ -52,3 +52,5 @@ class AuditAction(str, Enum):
     UPLOAD = "UPLOAD"
     LOGIN = "LOGIN"
     LOGOUT = "LOGOUT"
+    USER_CREATED = "USER_CREATED"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED"

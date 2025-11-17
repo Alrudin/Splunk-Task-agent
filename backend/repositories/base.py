@@ -65,35 +65,35 @@ class BaseRepository(Generic[ModelType]):
         )
         return list(result.scalars().all())
 
-    async def create(self, data: Dict[str, Any]) -> ModelType:
+    async def create(self, **kwargs) -> ModelType:
         """
-        Create new record from dictionary.
+        Create new record from keyword arguments.
 
         Args:
-            data: Dictionary of field values
+            **kwargs: Field values as keyword arguments
 
         Returns:
             Created model instance
         """
-        instance = self.model(**data)
+        instance = self.model(**kwargs)
         self.session.add(instance)
         await self.session.flush()
         await self.session.refresh(instance)
         return instance
 
-    async def update(self, id: UUID, data: Dict[str, Any]) -> Optional[ModelType]:
+    async def update(self, id: UUID, **kwargs) -> Optional[ModelType]:
         """
         Update existing record.
 
         Args:
             id: Primary key UUID
-            data: Dictionary of fields to update
+            **kwargs: Field values to update
 
         Returns:
             Updated model instance or None if not found
         """
         await self.session.execute(
-            update(self.model).where(self.model.id == id).values(**data)
+            update(self.model).where(self.model.id == id).values(**kwargs)
         )
         await self.session.flush()
         return await self.get_by_id(id)

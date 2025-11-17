@@ -20,12 +20,23 @@ class UserRepository(BaseRepository[User]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, User)
 
-    async def get_by_username(self, username: str) -> Optional[User]:
-        """Find user by username."""
+    async def get_by_id(self, user_id: UUID) -> Optional[User]:
+        """Get user by ID with eagerly loaded roles."""
         result = await self.session.execute(
-            select(User).where(User.username == username)
+            select(User)
+            .options(joinedload(User.roles))
+            .where(User.id == user_id)
         )
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
+
+    async def get_by_username(self, username: str) -> Optional[User]:
+        """Find user by username with eagerly loaded roles."""
+        result = await self.session.execute(
+            select(User)
+            .options(joinedload(User.roles))
+            .where(User.username == username)
+        )
+        return result.unique().scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> Optional[User]:
         """Find user by email."""
@@ -100,3 +111,30 @@ class UserRepository(BaseRepository[User]):
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def add_role(self, user_id: UUID, role_id: UUID) -> None:
+        """Add a role to a user."""
+        # Check if user-role relationship already exists
+        existing = await self.session.execute(
+            select(UserRole).where(
+                UserRole.user_id == user_id,
+                UserRole.role_id == role_id
+            )
+        )
+        if existing.scalar_one_or_none():
+            return  # Already exists
+
+        # Create new user-role relationship
+        user_role = UserRole(user_id=user_id, role_id=role_id)
+        self.session.add(user_role)
+        await self.session.flush()
+
+    async def remove_role(self, user_id: UUID, role_id: UUID) -> None:
+        """Remove a role from a user."""
+        await self.session.execute(
+            select(UserRole).where(
+                UserRole.user_id == user_id,
+                UserRole.role_id == role_id
+            ).delete()
+        )
+        await self.session.flush()
