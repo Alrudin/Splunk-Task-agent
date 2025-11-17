@@ -89,7 +89,30 @@ Verify services are running:
 docker-compose ps
 ```
 
-### 4. Backend Setup
+### 4. Object Storage Setup
+
+After starting docker-compose services, initialize the storage buckets:
+
+```bash
+# From project root
+python -m backend.scripts.init_storage
+
+# Verify connectivity only
+python -m backend.scripts.init_storage --verify-only
+
+# Force recreate buckets
+python -m backend.scripts.init_storage --force
+```
+
+#### Access MinIO Console
+
+MinIO provides a web console for managing buckets and objects:
+
+- URL: <http://localhost:9001>
+- Username: `minioadmin` (from `.env` `MINIO_ACCESS_KEY`)
+- Password: `minioadmin` (from `.env` `MINIO_SECRET_KEY`)
+
+### 5. Backend Setup
 
 ```bash
 # Navigate to backend directory
@@ -114,7 +137,7 @@ pip install -r requirements.txt
 # uvicorn main:app --reload --port 8000
 ```
 
-### 5. Frontend Setup
+### 6. Frontend Setup
 
 In a new terminal:
 
@@ -218,6 +241,35 @@ alembic revision --autogenerate -m "Description"
 # Apply migrations
 alembic upgrade head
 ```
+
+### Storage Maintenance
+
+Run periodic cleanup to enforce retention policies:
+
+```bash
+# Preview cleanup (dry run)
+python -m backend.scripts.cleanup_storage cleanup all --dry-run
+
+# Execute cleanup
+python -m backend.scripts.cleanup_storage cleanup all
+
+# Clean only expired samples
+python -m backend.scripts.cleanup_storage cleanup samples
+
+# Generate detailed report
+python -m backend.scripts.cleanup_storage cleanup all --report cleanup_report.json
+```
+
+#### Configuration
+
+Storage settings are configured in `.env` (copy from `.env.example`):
+
+- `SAMPLE_RETENTION_ENABLED`: Enable/disable automatic sample deletion
+- `SAMPLE_RETENTION_DAYS`: Days to keep samples before deletion
+- `MAX_SAMPLE_SIZE_MB`: Maximum upload size (default 500MB)
+- `MINIO_BUCKET_*`: Bucket names for different artifact types
+
+See `backend/integrations/README.md` for detailed storage client documentation.
 
 ## Core Workflow
 
