@@ -107,11 +107,17 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run database migrations (when available)
-# alembic upgrade head
+# Run database migrations
+alembic upgrade head
+
+# Seed initial roles
+python -m backend.scripts.seed_roles
+
+# Create admin user
+python -m backend.scripts.create_admin
 
 # Start the FastAPI server
-# uvicorn main:app --reload --port 8000
+uvicorn backend.main:app --reload --port 8000
 ```
 
 ### 5. Frontend Setup
@@ -218,6 +224,126 @@ alembic revision --autogenerate -m "Description"
 # Apply migrations
 alembic upgrade head
 ```
+
+## Authentication Setup
+
+The system supports multiple authentication methods:
+
+### Initial Setup
+
+1. **Run database migrations**:
+
+   ```bash
+   cd backend
+   alembic upgrade head
+   ```
+
+2. **Seed roles**:
+
+   ```bash
+   python -m backend.scripts.seed_roles
+   ```
+
+   This creates four roles:
+   - `REQUESTOR`: Can submit TA generation requests
+   - `APPROVER`: Can approve/reject requests
+   - `ADMIN`: Full system access
+   - `KNOWLEDGE_MANAGER`: Can manage knowledge documents
+
+3. **Create admin user**:
+
+   ```bash
+   python -m backend.scripts.create_admin
+   ```
+
+   Follow the prompts to create your first admin user.
+
+### Configuration
+
+Copy `.env.example` to `.env` and configure authentication:
+
+**JWT Configuration** (required):
+
+```bash
+# Generate a secure secret key
+JWT_SECRET_KEY=$(openssl rand -hex 32)
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_MINUTES=60
+JWT_REFRESH_EXPIRATION_DAYS=7
+```
+
+**Local Authentication** (enabled by default):
+
+```bash
+LOCAL_AUTH_ENABLED=true
+```
+
+**SAML Configuration** (optional):
+
+```bash
+SAML_ENABLED=true
+SAML_METADATA_URL=https://your-idp.com/metadata
+SAML_ENTITY_ID=https://your-app.com/saml
+```
+
+**OAuth Configuration** (optional):
+
+```bash
+OAUTH_ENABLED=true
+OAUTH_CLIENT_ID=your-client-id
+OAUTH_CLIENT_SECRET=your-client-secret
+OAUTH_AUTHORIZE_URL=https://oauth-provider.com/authorize
+OAUTH_TOKEN_URL=https://oauth-provider.com/token
+OAUTH_USER_INFO_URL=https://oauth-provider.com/userinfo
+```
+
+**OIDC Configuration** (optional):
+
+```bash
+OIDC_ENABLED=true
+OIDC_CLIENT_ID=your-client-id
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_DISCOVERY_URL=https://oidc-provider.com/.well-known/openid-configuration
+```
+
+### Frontend Configuration
+
+Copy `frontend/.env.example` to `frontend/.env.local`:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8000/api/v1
+VITE_APP_NAME=Splunk TA Generator
+```
+
+### Running the Application
+
+**Backend**:
+
+```bash
+cd backend
+uvicorn backend.main:app --reload
+```
+
+**Frontend**:
+
+```bash
+cd frontend
+npm run dev
+```
+
+### Testing Authentication
+
+1. Access the frontend at <http://localhost:5173/login>
+2. Login with your admin credentials
+3. Navigate to different sections to test role-based access
+4. Access API docs with authentication: <http://localhost:8000/api/docs>
+
+### User Management
+
+Create additional users via:
+- Admin panel (coming soon)
+- Registration page (if local auth enabled)
+- SSO providers (automatic user creation on first login)
 
 ## Core Workflow
 
