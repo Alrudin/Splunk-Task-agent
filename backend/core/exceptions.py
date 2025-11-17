@@ -114,6 +114,67 @@ class NotImplementedEndpointError(AppException):
         )
 
 
+# Request-related exceptions
+class RequestNotFoundError(AppException):
+    """Request not found."""
+
+    def __init__(self, detail: str = "Request not found"):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail
+        )
+
+
+class SampleNotFoundError(AppException):
+    """Sample not found."""
+
+    def __init__(self, detail: str = "Sample not found"):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail
+        )
+
+
+class InvalidRequestStateError(AppException):
+    """Operation not allowed in current request state."""
+
+    def __init__(self, detail: str = "Operation not allowed in current request state"):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
+
+
+class FileSizeExceededError(AppException):
+    """File size exceeds maximum allowed."""
+
+    def __init__(self, max_size_mb: int = 500):
+        super().__init__(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File size exceeds maximum allowed size of {max_size_mb}MB"
+        )
+
+
+class InvalidFileTypeError(AppException):
+    """File type not allowed."""
+
+    def __init__(self, detail: str = "File type not allowed"):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
+
+
+class NoSamplesAttachedError(AppException):
+    """No samples attached to request."""
+
+    def __init__(self, detail: str = "At least one sample must be attached before submission"):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
+
+
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     """
     Global exception handler for AppException instances.

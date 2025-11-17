@@ -9,6 +9,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import NewRequest from './pages/NewRequest';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -118,6 +119,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Requests />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/requests/new"
+              element={
+                <ProtectedRoute requiredRole="REQUESTOR">
+                  <NewRequest />
                 </ProtectedRoute>
               }
             />
