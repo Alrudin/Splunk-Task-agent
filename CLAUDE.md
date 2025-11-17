@@ -61,6 +61,7 @@ The system follows a microservices architecture with the following key component
 ### Technology Stack
 
 **Backend:**
+
 - Python 3.11+
 - FastAPI (async, OpenAPI auto-gen)
 - Celery (task queue)
@@ -70,6 +71,7 @@ The system follows a microservices architecture with the following key component
 - structlog (structured logging)
 
 **Frontend:**
+
 - TypeScript
 - React
 - Vite (build tool)
@@ -78,6 +80,7 @@ The system follows a microservices architecture with the following key component
 - oidc-client-ts (auth)
 
 **Infrastructure:**
+
 - PostgreSQL
 - S3-compatible object storage (MinIO for dev)
 - Pinecone vector database
@@ -115,6 +118,7 @@ System is configured via environment variables and `system_config` table:
 ### Audit Log Requirements
 
 Must capture:
+
 - Identity of approving human reviewer
 - TA generation start/end timestamps
 - Manual override uploads
@@ -126,6 +130,7 @@ Must capture:
 ### Prompt Construction
 
 Inputs to LLM prompt:
+
 - Request metadata (log source, format, required fields)
 - Sample log snippets (sampled lines, not full 500MB)
 - Relevant Splunk doc excerpts from Pinecone (props, transforms, CIM docs, similar TAs)
@@ -144,6 +149,7 @@ Output format: Structured JSON containing config file definitions
 ### Splunk Sandbox Orchestration
 
 **Kubernetes Strategy** (preferred):
+
 - K8s Job per validation run
 - Image: `splunk/splunk:latest` (or pinned version)
 - TA mounted + logs ingested via init container or sidecar
@@ -162,6 +168,7 @@ Output format: Structured JSON containing config file definitions
 ### Debug Bundle Contents
 
 On validation failure, bundle must include:
+
 - Full generated TA (even if invalid)
 - Splunk internal error logs
 - Validation engine logs
@@ -198,8 +205,6 @@ On validation failure, bundle must include:
 4. **Phase 3**: Full human approval workflow
 5. **Phase 4**: Internal rollout
 6. **Phase 5**: Continuous improvement
-
-
 
 ## Known Constraints
 

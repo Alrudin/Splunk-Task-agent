@@ -7,6 +7,7 @@ An intelligent system that automates the process of creating Splunk Technology A
 The AI-Assisted Splunk TA Generator streamlines the traditionally manual and time-consuming process of onboarding new log sources into Splunk. Using a combination of AI-powered configuration generation, knowledge retrieval from Splunk documentation, and automated validation, the system produces production-ready TA packages that can be immediately deployed to Splunk environments.
 
 For detailed requirements and design specifications, see:
+
 - [Product Requirements Document (PRD)](./PO-folder/PRD.md)
 - [Technical Design Document](./PO-folder/Design.md)
 
@@ -26,6 +27,7 @@ For detailed requirements and design specifications, see:
 ### Technology Stack
 
 **Backend:**
+
 - Python 3.11+
 - FastAPI (async web framework)
 - SQLAlchemy 2.0 (ORM)
@@ -33,6 +35,7 @@ For detailed requirements and design specifications, see:
 - Alembic (database migrations)
 
 **Frontend:**
+
 - React 18
 - TypeScript
 - Vite (build tool)
@@ -40,6 +43,7 @@ For detailed requirements and design specifications, see:
 - React Query (data fetching)
 
 **Infrastructure:**
+
 - Docker & Docker Compose
 - PostgreSQL 15
 - Redis 7
@@ -80,6 +84,7 @@ docker-compose up -d
 ```
 
 Verify services are running:
+
 ```bash
 docker-compose ps
 ```
@@ -125,13 +130,14 @@ npm run dev
 ```
 
 The application will be available at:
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
+
+- Frontend: <http://localhost:5173>
+- Backend API: <http://localhost:8000>
+- API Documentation: <http://localhost:8000/docs>
 
 ## Project Structure
 
-```
+```text
 Splunk-Task-agent/
 ├── backend/              # Python FastAPI backend
 │   ├── api/             # API endpoints
@@ -157,17 +163,20 @@ Splunk-Task-agent/
 ## Infrastructure Services
 
 ### PostgreSQL
+
 - **Port**: 5432
 - **Database**: splunk_ta_generator
 - **Default credentials**: postgres/postgres123 (change in production)
 
 ### Redis
+
 - **Port**: 6379
 - **Purpose**: Celery task broker and result backend
 
 ### MinIO (S3-compatible storage)
+
 - **API Port**: 9000
-- **Console Port**: 9001 (http://localhost:9001)
+- **Console Port**: 9001 (<http://localhost:9001>)
 - **Default credentials**: minioadmin/minioadmin (change in production)
 - **Buckets**: log-samples, ta-artifacts, debug-bundles
 
@@ -222,8 +231,9 @@ alembic upgrade head
 ## API Documentation
 
 Once the backend is running, interactive API documentation is available at:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+
+- Swagger UI: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
 
 ## Security Considerations
 
@@ -239,6 +249,7 @@ Once the backend is running, interactive API documentation is available at:
 For production deployment:
 
 1. Build Docker images:
+
 ```bash
 docker build -t splunk-ta-backend ./backend
 docker build -t splunk-ta-frontend ./frontend
@@ -262,6 +273,7 @@ docker build -t splunk-ta-frontend ./frontend
 ## Support
 
 For issues and questions:
+
 - Check the [Design Document](./PO-folder/Design.md) for technical details
 - Review the [PRD](./PO-folder/PRD.md) for product requirements
 - Create an issue in the repository
