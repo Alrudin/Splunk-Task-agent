@@ -6,7 +6,11 @@
       "Bash(docker build:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(npm ci:*)"
+      "Bash(npm ci:*)",
+      "Bash(tree -L 3:*)",
+      "Bash(chmod:*)",
+      "Bash(python3:*)",
+      "Bash(PYTHONPATH=/Users/johan/src/Splunk-Task-agent python3:*)"
     ],
     "deny": [],
     "ask": []
