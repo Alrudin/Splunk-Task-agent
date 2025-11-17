@@ -66,6 +66,22 @@ class Settings(BaseSettings):
     log_format: str = Field(default="json", description="Log format (json or text)")
     enable_audit_logging: bool = Field(default=True, description="Enable audit logging")
 
+    # MinIO / S3 Object Storage Settings
+    minio_endpoint: str = Field(default="localhost:9000", description="MinIO endpoint (host:port)")
+    minio_access_key: str = Field(..., description="MinIO access key")
+    minio_secret_key: str = Field(..., description="MinIO secret key")
+    minio_bucket_samples: str = Field(default="log-samples", description="Bucket for log samples")
+    minio_bucket_tas: str = Field(default="ta-artifacts", description="Bucket for TA artifacts")
+    minio_bucket_debug: str = Field(default="debug-bundles", description="Bucket for debug bundles")
+    minio_use_ssl: bool = Field(default=False, description="Use SSL for MinIO connections")
+    minio_region: str = Field(default="us-east-1", description="MinIO region")
+
+    # Sample Retention & Upload Settings
+    sample_retention_enabled: bool = Field(default=True, description="Enable sample retention policy")
+    sample_retention_days: int = Field(default=90, description="Days to retain samples")
+    max_sample_size_mb: int = Field(default=500, description="Maximum sample file size in MB")
+    upload_chunk_size: int = Field(default=1048576, description="Upload chunk size in bytes (default 1MB)")
+
     @field_validator("jwt_secret_key")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:

@@ -2,7 +2,7 @@
 LogSampleRepository for LogSample-specific database operations.
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import select, update, func
@@ -84,3 +84,45 @@ class LogSampleRepository(BaseRepository[LogSample]):
         )
         await self.session.flush()
         return await self.get_by_id(sample_id)
+
+    async def get_aggregated_stats_by_requests(
+        self, request_ids: List[UUID]
+    ) -> Dict[UUID, Dict[str, int]]:
+        """
+        Get aggregated sample statistics for multiple requests in a single query.
+
+        Args:
+            request_ids: List of request IDs to get stats for
+
+        Returns:
+            Dict mapping request_id to {"count": int, "total_size": int}
+        """
+        if not request_ids:
+            return {}
+
+        result = await self.session.execute(
+            select(
+                LogSample.request_id,
+                func.count(LogSample.id).label("count"),
+                func.coalesce(func.sum(LogSample.file_size), 0).label("total_size"),
+            )
+            .where(
+                LogSample.request_id.in_(request_ids),
+                LogSample.deleted_at.is_(None),
+            )
+            .group_by(LogSample.request_id)
+        )
+
+        stats = {}
+        for row in result:
+            stats[row.request_id] = {
+                "count": row.count,
+                "total_size": row.total_size,
+            }
+
+        # Fill in zeros for request_ids with no samples
+        for request_id in request_ids:
+            if request_id not in stats:
+                stats[request_id] = {"count": 0, "total_size": 0}
+
+        return stats

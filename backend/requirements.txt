@@ -34,6 +34,7 @@ authlib>=1.3.0                      # OAuth and OIDC support for enterprise SSO
 # Object Storage (S3-compatible)
 boto3>=1.34.0                       # AWS SDK for S3-compatible storage (MinIO)
 botocore>=1.34.0                    # Low-level AWS service access
+aioboto3>=12.0.0                    # Async wrapper for boto3 for FastAPI streaming uploads/downloads
 
 # Vector Database
 pinecone-client>=3.0.0              # Pinecone vector database client

@@ -10,6 +10,8 @@ from backend.database import get_db
 from backend.models.user import User
 from backend.models.enums import UserRoleEnum
 from backend.repositories.user_repository import UserRepository
+from backend.repositories.request_repository import RequestRepository
+from backend.repositories.log_sample_repository import LogSampleRepository
 from backend.core.security import decode_jwt_token
 from backend.core.exceptions import (
     InvalidTokenError,
@@ -17,6 +19,7 @@ from backend.core.exceptions import (
     UserInactiveError,
     InsufficientPermissionsError
 )
+from backend.integrations.object_storage_client import ObjectStorageClient
 
 
 def get_token_from_header(authorization: str = Header(None)) -> str:
@@ -185,3 +188,54 @@ get_current_requestor = Depends(require_role(UserRoleEnum.REQUESTOR))
 get_current_approver = Depends(require_role(UserRoleEnum.APPROVER))
 get_current_admin = Depends(require_role(UserRoleEnum.ADMIN))
 get_current_knowledge_manager = Depends(require_role(UserRoleEnum.KNOWLEDGE_MANAGER))
+
+
+# Service dependencies
+def get_storage_client() -> ObjectStorageClient:
+    """
+    Get object storage client instance.
+
+    Returns:
+        ObjectStorageClient instance configured with settings
+    """
+    return ObjectStorageClient()
+
+
+async def get_sample_repository(
+    db: AsyncSession = Depends(get_db),
+) -> LogSampleRepository:
+    """
+    Get log sample repository instance.
+
+    Args:
+        db: Database session
+
+    Returns:
+        LogSampleRepository instance
+    """
+    return LogSampleRepository(db)
+
+
+async def get_request_service(
+    db: AsyncSession = Depends(get_db),
+) -> "RequestService":
+    """
+    Get request service instance with injected dependencies.
+
+    Args:
+        db: Database session
+
+    Returns:
+        RequestService instance
+    """
+    from backend.services.request_service import RequestService
+
+    request_repo = RequestRepository(db)
+    sample_repo = LogSampleRepository(db)
+    storage_client = get_storage_client()
+
+    return RequestService(
+        request_repository=request_repo,
+        sample_repository=sample_repo,
+        storage_client=storage_client,
+    )
