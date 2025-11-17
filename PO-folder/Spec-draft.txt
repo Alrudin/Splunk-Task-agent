@@ -1,0 +1,3 @@
+The system we are developing is an AI agent based on either Ollama or a cloudbased LLM.
+The purpose of the agent is to recieve requests for ingestion of logs to Splunk, and then get the correct details from the requester, along with log samples that are representative for the task requested.
+The agent must then used a (vector) database of Splunk knowledge gathered from sources and possibly browsing the Internet to develop a Splunk TA to ingest, and extract fields requested and normalise it to the Splunk CIM model.
