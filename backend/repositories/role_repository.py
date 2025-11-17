@@ -39,7 +39,26 @@ class RoleRepository(BaseRepository[Role]):
     async def assign_role_to_user(
         self, user_id: UUID, role_id: UUID, assigned_by: Optional[UUID] = None
     ) -> UserRole:
-        """Create UserRole association."""
+        """
+        Create UserRole association.
+
+        If the role is already assigned to the user, returns the existing association
+        without creating a duplicate.
+        """
+        # Check if the role assignment already exists
+        result = await self.session.execute(
+            select(UserRole).where(
+                UserRole.user_id == user_id,
+                UserRole.role_id == role_id
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Role is already assigned, return the existing association
+            return existing
+
+        # Create new role assignment
         user_role = UserRole(
             user_id=user_id,
             role_id=role_id,

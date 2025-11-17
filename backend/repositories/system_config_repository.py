@@ -39,9 +39,20 @@ class SystemConfigRepository(BaseRepository[SystemConfig]):
         value_type: str,
         updated_by: UUID,
         description: Optional[str] = None,
-        is_secret: bool = False
+        is_secret: Optional[bool] = None
     ) -> SystemConfig:
-        """Create or update config entry."""
+        """
+        Create or update config entry.
+
+        Args:
+            key: Configuration key
+            value: Configuration value
+            value_type: Type of value (string, integer, boolean, json, list)
+            updated_by: User ID performing the update
+            description: Optional description
+            is_secret: Optional flag to mark value as secret. If None and updating an
+                      existing config, preserves the current is_secret value.
+        """
         # Convert value to string for storage
         if value_type == "json":
             value_str = json.dumps(value)
@@ -57,7 +68,9 @@ class SystemConfigRepository(BaseRepository[SystemConfig]):
         existing = await self.get_by_key(key)
 
         if existing:
-            # Update existing
+            # Update existing - preserve is_secret if not explicitly provided
+            effective_is_secret = is_secret if is_secret is not None else existing.is_secret
+
             await self.session.execute(
                 update(SystemConfig)
                 .where(SystemConfig.key == key)
@@ -65,20 +78,20 @@ class SystemConfigRepository(BaseRepository[SystemConfig]):
                     value=value_str,
                     value_type=value_type,
                     description=description or existing.description,
-                    is_secret=is_secret,
+                    is_secret=effective_is_secret,
                     updated_by=updated_by
                 )
             )
             await self.session.flush()
             return await self.get_by_key(key)
         else:
-            # Create new
+            # Create new - default to False if not provided
             config = SystemConfig(
                 key=key,
                 value=value_str,
                 value_type=value_type,
                 description=description,
-                is_secret=is_secret,
+                is_secret=is_secret if is_secret is not None else False,
                 updated_by=updated_by
             )
             self.session.add(config)

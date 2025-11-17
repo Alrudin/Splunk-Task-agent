@@ -156,15 +156,36 @@ class AuditLogRepository(BaseRepository[AuditLog]):
 
     async def search_logs(
         self,
-        query: str,
+        query: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         skip: int = 0,
         limit: int = 100
     ) -> List[AuditLog]:
-        """Advanced search with multiple filters."""
+        """
+        Advanced search with multiple filters.
+
+        Args:
+            query: Optional text search query that matches entity_type or ip_address
+            filters: Dictionary of structured filters (user_id, action, entity_type, etc.)
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+
+        Returns:
+            List of matching AuditLog entries
+        """
         stmt = select(AuditLog)
 
-        # Apply filters if provided
+        # Apply text search if query provided
+        if query and query.strip():
+            search_pattern = f"%{query}%"
+            stmt = stmt.where(
+                or_(
+                    AuditLog.entity_type.ilike(search_pattern),
+                    AuditLog.ip_address.ilike(search_pattern)
+                )
+            )
+
+        # Apply structured filters if provided
         if filters:
             if "user_id" in filters:
                 stmt = stmt.where(AuditLog.user_id == filters["user_id"])
