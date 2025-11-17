@@ -11,7 +11,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
-    postgresql-dev \
     libpq-dev \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*

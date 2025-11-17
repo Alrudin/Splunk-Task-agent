@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with exact versions
-RUN npm ci --only=production && \
+# Install all dependencies (including devDependencies for build)
+RUN npm ci && \
     npm cache clean --force
 
 # Copy all frontend source code
