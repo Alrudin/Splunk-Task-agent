@@ -1,0 +1,56 @@
+# AI-Assisted Splunk TA Generator - Backend Dependencies
+# Python 3.11+ required
+
+# Web Framework & Server
+fastapi>=0.104.0                    # Modern async web framework with automatic OpenAPI documentation
+uvicorn[standard]>=0.24.0           # ASGI server with WebSocket support
+pydantic>=2.5.0                     # Data validation using Python type annotations
+pydantic-settings>=2.1.0            # Settings management from environment variables
+
+# Database & ORM
+sqlalchemy>=2.0.23                  # SQL toolkit and ORM
+alembic>=1.13.0                     # Database migration tool
+psycopg2-binary>=2.9.9              # PostgreSQL adapter
+asyncpg>=0.29.0                     # Async PostgreSQL driver for SQLAlchemy
+
+# Task Queue & Background Jobs
+celery>=5.3.4                       # Distributed task queue for async processing
+redis>=5.0.1                        # Redis client for Celery broker
+flower>=2.0.1                       # Real-time Celery monitoring tool (optional)
+
+# HTTP Client
+httpx>=0.25.2                       # Async HTTP client for Ollama, Pinecone, and Splunk REST API calls
+tenacity>=8.2.3                     # Retry logic for external API calls
+
+# Logging & Monitoring
+structlog>=23.2.0                   # Structured logging with correlation IDs and JSON output
+
+# Authentication & Security
+python-jose[cryptography]>=3.3.0    # JWT token handling
+passlib[bcrypt]>=1.7.4             # Password hashing
+python-multipart>=0.0.6            # Form data parsing for file uploads
+authlib>=1.3.0                      # OAuth and OIDC support for enterprise SSO
+
+# Object Storage (S3-compatible)
+boto3>=1.34.0                       # AWS SDK for S3-compatible storage (MinIO)
+botocore>=1.34.0                    # Low-level AWS service access
+
+# Vector Database
+pinecone-client>=3.0.0              # Pinecone vector database client
+
+# LLM Integration
+# Note: Ollama client library to be determined based on latest best practices
+openai>=1.6.0                       # OpenAI client (for compatibility with Ollama API)
+
+# Configuration & Utilities
+python-dotenv>=1.0.0                # Load environment variables from .env files
+pyyaml>=6.0.1                       # YAML parsing for configuration
+click>=8.1.7                        # CLI commands for management scripts
+
+# Data Processing
+pandas>=2.1.4                       # Data manipulation for log analysis
+numpy>=1.26.2                       # Numerical computing support
+
+# Validation & Testing Support
+jsonschema>=4.20.0                  # JSON schema validation for config files
+pydantic-extra-types>=2.2.0        # Additional Pydantic types
