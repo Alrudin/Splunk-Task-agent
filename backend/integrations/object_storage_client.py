@@ -99,7 +99,7 @@ class StorageConfig:
             retention_enabled=os.getenv("SAMPLE_RETENTION_ENABLED", "true").lower()
             == "true",
             retention_days=int(os.getenv("SAMPLE_RETENTION_DAYS", "30")),
-            max_upload_size_mb=int(os.getenv("MINIO_MAX_UPLOAD_SIZE_MB", "500")),
+            max_upload_size_mb=int(os.getenv("MAX_SAMPLE_SIZE_MB", "500")),
             presigned_url_expiration=int(
                 os.getenv("MINIO_PRESIGNED_URL_EXPIRATION", "3600")
             ),
@@ -840,24 +840,37 @@ class ObjectStorageClient:
                 retention_days=self.config.retention_days,
             )
 
-            # List all objects in samples bucket
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.config.bucket_samples
-            )
-
+            # List all objects in samples bucket with pagination
             deleted_count = 0
-            for obj in response.get("Contents", []):
-                # Check if object is older than retention period
-                if obj["LastModified"].replace(tzinfo=None) < cutoff_date:
-                    self.s3_client.delete_object(
-                        Bucket=self.config.bucket_samples, Key=obj["Key"]
-                    )
-                    deleted_count += 1
-                    logger.info(
-                        "expired_sample_deleted",
-                        storage_key=obj["Key"],
-                        last_modified=obj["LastModified"].isoformat(),
-                    )
+            continuation_token = None
+
+            while True:
+                # Build request parameters
+                list_params = {"Bucket": self.config.bucket_samples}
+                if continuation_token:
+                    list_params["ContinuationToken"] = continuation_token
+
+                response = self.s3_client.list_objects_v2(**list_params)
+
+                # Process objects in current page
+                for obj in response.get("Contents", []):
+                    # Check if object is older than retention period
+                    if obj["LastModified"].replace(tzinfo=None) < cutoff_date:
+                        self.s3_client.delete_object(
+                            Bucket=self.config.bucket_samples, Key=obj["Key"]
+                        )
+                        deleted_count += 1
+                        logger.info(
+                            "expired_sample_deleted",
+                            storage_key=obj["Key"],
+                            last_modified=obj["LastModified"].isoformat(),
+                        )
+
+                # Check if there are more pages
+                if response.get("IsTruncated", False):
+                    continuation_token = response.get("NextContinuationToken")
+                else:
+                    break
 
             logger.info(
                 "retention_cleanup_completed",
@@ -893,14 +906,33 @@ class ObjectStorageClient:
 
         for bucket_type, bucket_name in buckets.items():
             try:
-                response = self.s3_client.list_objects_v2(Bucket=bucket_name)
+                # Collect all objects across all pages
+                all_objects = []
+                continuation_token = None
 
-                objects = response.get("Contents", [])
-                total_size = sum(obj["Size"] for obj in objects)
-                total_count = len(objects)
+                while True:
+                    # Build request parameters
+                    list_params = {"Bucket": bucket_name}
+                    if continuation_token:
+                        list_params["ContinuationToken"] = continuation_token
 
-                oldest = min(objects, key=lambda x: x["LastModified"], default=None)
-                newest = max(objects, key=lambda x: x["LastModified"], default=None)
+                    response = self.s3_client.list_objects_v2(**list_params)
+
+                    # Accumulate objects from current page
+                    all_objects.extend(response.get("Contents", []))
+
+                    # Check if there are more pages
+                    if response.get("IsTruncated", False):
+                        continuation_token = response.get("NextContinuationToken")
+                    else:
+                        break
+
+                # Compute statistics from all collected objects
+                total_size = sum(obj["Size"] for obj in all_objects)
+                total_count = len(all_objects)
+
+                oldest = min(all_objects, key=lambda x: x["LastModified"], default=None)
+                newest = max(all_objects, key=lambda x: x["LastModified"], default=None)
 
                 stats[bucket_type] = {
                     "bucket_name": bucket_name,
@@ -936,9 +968,9 @@ class ObjectStorageClient:
             *path_parts: Path components to join
 
         Returns:
-            Storage key
+            Storage key with bucket_type prefix (e.g., "samples/{request_id}/{filename}")
         """
-        return "/".join(path_parts)
+        return "/".join((bucket_type,) + path_parts)
 
     def _stream_upload(
         self,

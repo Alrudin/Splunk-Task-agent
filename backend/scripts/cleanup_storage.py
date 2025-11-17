@@ -17,6 +17,7 @@ Scheduling:
 """
 
 import json
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -74,7 +75,7 @@ def cleanup(
     # Configure logging
     if verbose:
         structlog.configure(
-            wrapper_class=structlog.make_filtering_bound_logger(logging_level=10)
+            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG)
         )
 
     click.echo("=" * 70)
@@ -243,18 +244,34 @@ def _preview_expired_samples(
     cutoff_date = parse_retention_date(config.retention_days)
 
     try:
-        response = client.s3_client.list_objects_v2(Bucket=config.bucket_samples)
-
         samples_to_delete = []
-        for obj in response.get("Contents", []):
-            if obj["LastModified"].replace(tzinfo=None) < cutoff_date:
-                samples_to_delete.append(
-                    {
-                        "key": obj["Key"],
-                        "size": obj["Size"],
-                        "last_modified": obj["LastModified"].isoformat(),
-                    }
-                )
+        continuation_token = None
+
+        # Iterate through all pages
+        while True:
+            # Build request parameters
+            list_params = {"Bucket": config.bucket_samples}
+            if continuation_token:
+                list_params["ContinuationToken"] = continuation_token
+
+            response = client.s3_client.list_objects_v2(**list_params)
+
+            # Process objects in current page
+            for obj in response.get("Contents", []):
+                if obj["LastModified"].replace(tzinfo=None) < cutoff_date:
+                    samples_to_delete.append(
+                        {
+                            "key": obj["Key"],
+                            "size": obj["Size"],
+                            "last_modified": obj["LastModified"].isoformat(),
+                        }
+                    )
+
+            # Check if there are more pages
+            if response.get("IsTruncated", False):
+                continuation_token = response.get("NextContinuationToken")
+            else:
+                break
 
         return samples_to_delete
 

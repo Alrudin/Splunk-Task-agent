@@ -4,10 +4,14 @@ FastAPI Dependency Injection
 Dependency injection functions for FastAPI endpoints to provide
 configured service clients including object storage, database sessions,
 and other shared resources.
+
+Note: The object storage client currently uses synchronous boto3 operations.
+For async FastAPI endpoints, file I/O operations will be executed synchronously
+within the async context. For large file operations, consider using
+asyncio.to_thread() or run_in_executor() to avoid blocking the event loop.
 """
 
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 import structlog
 
@@ -91,38 +95,6 @@ def get_storage_config() -> StorageConfig:
         ```
     """
     return StorageConfig.from_env()
-
-
-@asynccontextmanager
-async def storage_client_context() -> AsyncGenerator[ObjectStorageClient, None]:
-    """
-    Async context manager for object storage client.
-
-    Provides proper resource cleanup for storage operations. Use this in
-    async contexts where you need fine-grained control over client lifecycle.
-
-    Yields:
-        ObjectStorageClient: Configured storage client
-
-    Example:
-        ```python
-        async def process_upload():
-            async with storage_client_context() as storage:
-                storage_key = storage.upload_log_sample(...)
-                # Client will be properly cleaned up after this block
-        ```
-    """
-    client = None
-    try:
-        config = StorageConfig.from_env()
-        client = ObjectStorageClient(config)
-        logger.debug("storage_client_context_created")
-        yield client
-    finally:
-        # Note: boto3 clients don't require explicit cleanup,
-        # but we log for observability
-        if client:
-            logger.debug("storage_client_context_closed")
 
 
 def reset_storage_client() -> None:

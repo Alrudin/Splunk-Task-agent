@@ -11,7 +11,9 @@ The integrations module implements the following service clients:
 - **LLM Runtime (Ollama)**: For TA generation *(planned)*
 - **Splunk Sandbox**: For validation orchestration *(planned)*
 
-Each integration is implemented as a standalone client with configuration management, comprehensive error handling, and async support for FastAPI integration.
+Each integration is implemented as a standalone client with configuration management and comprehensive error handling.
+
+**Note**: The object storage client currently uses synchronous boto3 operations. While it integrates seamlessly with async FastAPI endpoints via dependency injection, file I/O operations execute synchronously. For large file uploads/downloads in async endpoints, consider using `asyncio.to_thread()` or `run_in_executor()` to avoid blocking the event loop. Full async support with aioboto3 is planned for a future phase.
 
 ## Object Storage Client
 
@@ -248,18 +250,6 @@ def generate_ta_bundle(request_id: UUID, revision_id: UUID):
     )
 
     return storage_key
-```
-
-#### Async Usage
-
-```python
-from backend.core.dependencies import storage_client_context
-
-async def process_upload():
-    """Use async context manager for proper resource cleanup."""
-    async with storage_client_context() as storage:
-        storage_key = storage.upload_log_sample(...)
-        # Client automatically cleaned up after this block
 ```
 
 ### Bucket Structure

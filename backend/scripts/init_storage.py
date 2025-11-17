@@ -10,6 +10,7 @@ Usage:
     python -m backend.scripts.init_storage --verbose
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -56,7 +57,7 @@ def init_storage(force: bool, verify_only: bool, verbose: bool) -> None:
     # Configure logging
     if verbose:
         structlog.configure(
-            wrapper_class=structlog.make_filtering_bound_logger(logging_level=10)
+            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG)
         )
 
     click.echo("=" * 70)
