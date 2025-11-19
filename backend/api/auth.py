@@ -2,7 +2,7 @@
 FastAPI router for authentication endpoints.
 """
 from typing import Dict
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
@@ -10,8 +10,8 @@ from backend.models.user import User
 from backend.models.enums import AuditAction
 from backend.repositories.user_repository import UserRepository
 from backend.repositories.role_repository import RoleRepository
-from backend.repositories.audit_log_repository import AuditLogRepository
 from backend.services.auth_service import AuthService
+from backend.services.audit_service import AuditService
 from backend.schemas.auth import (
     LocalLoginRequest,
     RegisterRequest,
@@ -26,8 +26,8 @@ from backend.schemas.auth import (
     AuthProvidersResponse
 )
 from backend.core.config import settings
-from backend.core.dependencies import get_current_active_user
-from backend.core.exceptions import InvalidCredentialsError, ProviderNotEnabledError
+from backend.core.dependencies import get_current_active_user, get_audit_service
+from backend.core.exceptions import ProviderNotEnabledError
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -67,13 +67,15 @@ async def get_auth_providers() -> AuthProvidersResponse:
     description="Authenticate with username and password. Returns user info and JWT tokens."
 )
 async def login_local(
-    request: LocalLoginRequest,
+    login_request: LocalLoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> LoginResponse:
     """Login with local username/password."""
     # Authenticate user
-    user = await auth_service.authenticate_local(request.username, request.password)
+    user = await auth_service.authenticate_local(login_request.username, login_request.password)
 
     # Generate tokens
     roles = [role.name for role in user.roles]
@@ -84,13 +86,13 @@ async def login_local(
     await auth_service.update_last_login(user.id)
 
     # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
+    await audit_service.log_action(
         user_id=user.id,
         action=AuditAction.LOGIN,
         entity_type="user",
-        entity_id=str(user.id),
-        details={"auth_provider": "local", "username": user.username}
+        entity_id=user.id,
+        details={"auth_provider": "local", "username": user.username},
+        request=request
     )
     await db.commit()
 
@@ -101,7 +103,7 @@ async def login_local(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -125,27 +127,29 @@ async def login_local(
     description="Register a new user with local authentication. Returns created user info."
 )
 async def register(
-    request: RegisterRequest,
+    register_request: RegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> UserResponse:
     """Register a new local user."""
     # Create user
     user = await auth_service.register_local_user(
-        username=request.username,
-        email=request.email,
-        password=request.password,
-        full_name=request.full_name
+        username=register_request.username,
+        email=register_request.email,
+        password=register_request.password,
+        full_name=register_request.full_name
     )
 
     # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
+    await audit_service.log_action(
         user_id=user.id,
         action=AuditAction.USER_CREATED,
         entity_type="user",
-        entity_id=str(user.id),
-        details={"username": user.username, "auth_provider": "local"}
+        entity_id=user.id,
+        details={"username": user.username, "auth_provider": "local"},
+        request=request
     )
     await db.commit()
 
@@ -157,7 +161,7 @@ async def register(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -172,9 +176,11 @@ async def register(
     description="Handle SAML SSO callback. Returns user info and JWT tokens."
 )
 async def saml_callback(
-    request: SAMLCallbackRequest,
+    saml_request: SAMLCallbackRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> LoginResponse:
     """Handle SAML SSO callback."""
     # Check if SAML is enabled
@@ -209,44 +215,11 @@ async def saml_callback(
         "SAML authentication requires integration with a SAML library. "
         "Please configure python3-saml or onelogin-saml and implement response parsing."
     )
-
-    # Generate tokens
-    roles = [role.name for role in user.roles]
-    access_token = auth_service.create_access_token(user.id, roles)
-    refresh_token = auth_service.create_refresh_token(user.id)
-
-    # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
-        user_id=user.id,
-        action=AuditAction.LOGIN,
-        entity_type="user",
-        entity_id=str(user.id),
-        details={"auth_provider": "saml", "username": user.username}
+    # The following return is unreachable, but ensures the function always returns a value for type checking.
+    return LoginResponse(
+        user=None,
+        tokens=None
     )
-    await db.commit()
-
-    # Build response
-    user_response = UserResponse(
-        id=user.id,
-        username=user.username,
-        email=user.email,
-        full_name=user.full_name,
-        is_active=user.is_active,
-        auth_provider=user.auth_provider,
-        roles=roles,
-        last_login=user.last_login,
-        created_at=user.created_at
-    )
-
-    token_response = TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-        expires_in=settings.jwt_expiration_minutes * 60
-    )
-
-    return LoginResponse(user=user_response, tokens=token_response)
 
 
 @router.post(
@@ -257,9 +230,11 @@ async def saml_callback(
     description="Handle OAuth callback. Returns user info and JWT tokens."
 )
 async def oauth_callback(
-    request: OAuthCallbackRequest,
+    oauth_request: OAuthCallbackRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> LoginResponse:
     """Handle OAuth callback."""
     # Check if OAuth is enabled
@@ -267,7 +242,7 @@ async def oauth_callback(
         raise ProviderNotEnabledError("OAuth")
 
     # Authenticate user
-    user = await auth_service.authenticate_oauth(request.code)
+    user = await auth_service.authenticate_oauth(oauth_request.code)
 
     # Generate tokens
     roles = [role.name for role in user.roles]
@@ -275,13 +250,13 @@ async def oauth_callback(
     refresh_token = auth_service.create_refresh_token(user.id)
 
     # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
+    await audit_service.log_action(
         user_id=user.id,
         action=AuditAction.LOGIN,
         entity_type="user",
-        entity_id=str(user.id),
-        details={"auth_provider": "oauth", "username": user.username}
+        entity_id=user.id,
+        details={"auth_provider": "oauth", "username": user.username},
+        request=request
     )
     await db.commit()
 
@@ -292,7 +267,7 @@ async def oauth_callback(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -316,9 +291,11 @@ async def oauth_callback(
     description="Handle OIDC callback. Returns user info and JWT tokens."
 )
 async def oidc_callback(
-    request: OIDCCallbackRequest,
+    oidc_request: OIDCCallbackRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> LoginResponse:
     """Handle OIDC callback."""
     # Check if OIDC is enabled
@@ -326,7 +303,7 @@ async def oidc_callback(
         raise ProviderNotEnabledError("OIDC")
 
     # Authenticate user
-    user = await auth_service.authenticate_oidc(request.id_token)
+    user = await auth_service.authenticate_oidc(oidc_request.id_token)
 
     # Generate tokens
     roles = [role.name for role in user.roles]
@@ -334,13 +311,13 @@ async def oidc_callback(
     refresh_token = auth_service.create_refresh_token(user.id)
 
     # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
+    await audit_service.log_action(
         user_id=user.id,
         action=AuditAction.LOGIN,
         entity_type="user",
-        entity_id=str(user.id),
-        details={"auth_provider": "oidc", "username": user.username}
+        entity_id=user.id,
+        details={"auth_provider": "oidc", "username": user.username},
+        request=request
     )
     await db.commit()
 
@@ -351,7 +328,7 @@ async def oidc_callback(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -407,7 +384,7 @@ async def get_me(
         email=current_user.email,
         full_name=current_user.full_name,
         is_active=current_user.is_active,
-        auth_provider=current_user.auth_provider,
+        auth_provider=current_user.auth_provider if current_user.auth_provider is not None else "",
         roles=roles,
         last_login=current_user.last_login,
         created_at=current_user.created_at
@@ -421,18 +398,20 @@ async def get_me(
     description="Logout current user. Client should discard tokens."
 )
 async def logout(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> Dict[str, str]:
     """Logout current user."""
     # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
+    await audit_service.log_action(
         user_id=current_user.id,
         action=AuditAction.LOGOUT,
         entity_type="user",
-        entity_id=str(current_user.id),
-        details={"username": current_user.username}
+        entity_id=current_user.id,
+        details={"username": current_user.username},
+        request=request
     )
     await db.commit()
 
@@ -446,10 +425,12 @@ async def logout(
     description="Change password for local users."
 )
 async def change_password(
-    request: ChangePasswordRequest,
+    password_request: ChangePasswordRequest,
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    audit_service: AuditService = Depends(get_audit_service)
 ) -> Dict[str, str]:
     """Change user password."""
     # Verify user has local auth
@@ -461,18 +442,18 @@ async def change_password(
     # Change password
     await auth_service.change_password(
         current_user.id,
-        request.old_password,
-        request.new_password
+        password_request.old_password,
+        password_request.new_password
     )
 
     # Log audit event
-    audit_repo = AuditLogRepository(db)
-    await audit_repo.create(
+    await audit_service.log_action(
         user_id=current_user.id,
         action=AuditAction.PASSWORD_CHANGED,
         entity_type="user",
-        entity_id=str(current_user.id),
-        details={"username": current_user.username}
+        entity_id=current_user.id,
+        details={"username": current_user.username},
+        request=request
     )
     await db.commit()
 

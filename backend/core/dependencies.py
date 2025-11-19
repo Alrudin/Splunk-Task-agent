@@ -3,7 +3,7 @@ FastAPI dependency functions for authentication and authorization.
 """
 from typing import Callable
 from uuid import UUID
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
@@ -20,6 +20,8 @@ from backend.core.exceptions import (
     InsufficientPermissionsError
 )
 from backend.integrations.object_storage_client import ObjectStorageClient
+from backend.services.request_service import RequestService
+from backend.services.audit_service import AuditService
 
 
 def get_token_from_header(authorization: str = Header(None)) -> str:
@@ -215,10 +217,9 @@ async def get_sample_repository(
     """
     return LogSampleRepository(db)
 
-
 async def get_request_service(
     db: AsyncSession = Depends(get_db),
-) -> "RequestService":
+) -> RequestService:
     """
     Get request service instance with injected dependencies.
 
@@ -228,7 +229,6 @@ async def get_request_service(
     Returns:
         RequestService instance
     """
-    from backend.services.request_service import RequestService
 
     request_repo = RequestRepository(db)
     sample_repo = LogSampleRepository(db)
@@ -239,3 +239,21 @@ async def get_request_service(
         sample_repository=sample_repo,
         storage_client=storage_client,
     )
+
+async def get_audit_service(
+    db: AsyncSession = Depends(get_db),
+) -> AuditService:
+
+    """
+    Get audit service instance with injected repository.
+
+    Args:
+        db: Database session
+
+    Returns:
+        AuditService instance configured for audit logging
+    """
+    from backend.repositories.audit_log_repository import AuditLogRepository
+
+    audit_repo = AuditLogRepository(db)
+    return AuditService(repository=audit_repo)

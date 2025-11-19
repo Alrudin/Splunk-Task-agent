@@ -11,22 +11,18 @@ from sqlalchemy.exc import SQLAlchemyError
 import structlog
 
 from backend.core.config import settings
+from backend.core.logging import configure_logging, get_logger
 from backend.core.exceptions import AppException, app_exception_handler
 from backend.api.auth import router as auth_router
 from backend.api.requests import router as requests_router
+from backend.api.audit import router as audit_router
 from backend.database import check_db_connection, dispose_engine
 
 
-# Configure structlog
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer() if settings.log_format == "json" else structlog.dev.ConsoleRenderer()
-    ]
-)
+# Configure centralized logging
+configure_logging()
 
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -150,8 +146,9 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(requests_router, prefix=settings.api_prefix)
+app.include_router(audit_router, prefix=settings.api_prefix)
 
-# TODO: Add more routers here as they are implemented
+# TODO: Add more routers here as they are implemented (samples, ta, validation, admin/knowledge, config)
 # app.include_router(approvals_router, prefix=settings.api_prefix)
 # app.include_router(admin_router, prefix=settings.api_prefix)
 

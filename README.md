@@ -341,6 +341,7 @@ npm run dev
 ### User Management
 
 Create additional users via:
+
 - Admin panel (coming soon)
 - Registration page (if local auth enabled)
 - SSO providers (automatic user creation on first login)
