@@ -10,6 +10,8 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import NewRequest from './pages/NewRequest';
+import ApproverDashboard from './pages/ApproverDashboard';
+import ApprovalDetail from './pages/ApprovalDetail';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -40,14 +42,6 @@ function Requests() {
   );
 }
 
-function Approvals() {
-  return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold">Approvals</h1>
-      <p className="mt-4 text-gray-600">Review and approve TA generation requests.</p>
-    </div>
-  );
-}
 
 function Admin() {
   return (
@@ -134,7 +128,15 @@ function App() {
               path="/approvals"
               element={
                 <ProtectedRoute requiredAnyRole={['APPROVER', 'ADMIN']}>
-                  <Approvals />
+                  <ApproverDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/approvals/:requestId"
+              element={
+                <ProtectedRoute requiredAnyRole={['APPROVER', 'ADMIN']}>
+                  <ApprovalDetail />
                 </ProtectedRoute>
               }
             />

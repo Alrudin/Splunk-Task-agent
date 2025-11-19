@@ -20,6 +20,7 @@ from backend.core.exceptions import (
     InsufficientPermissionsError
 )
 from backend.integrations.object_storage_client import ObjectStorageClient
+from backend.integrations.pinecone_client import PineconeClient
 
 
 def get_token_from_header(authorization: str = Header(None)) -> str:
@@ -191,6 +192,12 @@ get_current_knowledge_manager = Depends(require_role(UserRoleEnum.KNOWLEDGE_MANA
 
 
 # Service dependencies
+
+# Singleton instances
+_storage_client: ObjectStorageClient = None
+_pinecone_client: PineconeClient = None
+
+
 def get_storage_client() -> ObjectStorageClient:
     """
     Get object storage client instance.
@@ -199,6 +206,29 @@ def get_storage_client() -> ObjectStorageClient:
         ObjectStorageClient instance configured with settings
     """
     return ObjectStorageClient()
+
+
+def get_pinecone_client() -> PineconeClient:
+    """
+    Get Pinecone client singleton instance.
+
+    This function returns a singleton instance to avoid reinitializing
+    the embedding model on every request, which would be expensive.
+
+    Use with FastAPI's Depends() for dependency injection.
+
+    Example:
+        @app.get("/search")
+        async def search(pc: PineconeClient = Depends(get_pinecone_client)):
+            ...
+
+    Returns:
+        PineconeClient instance configured with settings
+    """
+    global _pinecone_client
+    if _pinecone_client is None:
+        _pinecone_client = PineconeClient()
+    return _pinecone_client
 
 
 async def get_sample_repository(
@@ -238,4 +268,27 @@ async def get_request_service(
         request_repository=request_repo,
         sample_repository=sample_repo,
         storage_client=storage_client,
+    )
+
+
+async def get_approval_service(
+    db: AsyncSession = Depends(get_db),
+) -> "ApprovalService":
+    """Get approval service instance with injected dependencies.
+
+    Args:
+        db: Database session
+
+    Returns:
+        ApprovalService instance with injected repositories
+    """
+    from backend.services.approval_service import ApprovalService
+    from backend.repositories.audit_log_repository import AuditLogRepository
+
+    request_repo = RequestRepository(db)
+    audit_repo = AuditLogRepository(db)
+
+    return ApprovalService(
+        request_repository=request_repo,
+        audit_log_repository=audit_repo,
     )

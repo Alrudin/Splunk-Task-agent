@@ -76,6 +76,36 @@ class Settings(BaseSettings):
     minio_use_ssl: bool = Field(default=False, description="Use SSL for MinIO connections")
     minio_region: str = Field(default="us-east-1", description="MinIO region")
 
+    # Pinecone API Settings
+    pinecone_api_key: str = Field(..., description="Pinecone API key for authentication")
+    pinecone_environment: str = Field(..., description="Pinecone environment/region (e.g., us-west1-gcp)")
+    pinecone_cloud: str = Field(default="aws", description="Cloud provider for serverless Pinecone")
+    pinecone_region: str = Field(default="us-east-1", description="Region for serverless Pinecone deployment")
+
+    # Pinecone Index Configuration
+    pinecone_index_docs: str = Field(default="splunk-docs-index", description="Index name for Splunk documentation")
+    pinecone_index_tas: str = Field(default="ta-examples-index", description="Index name for historical TA examples")
+    pinecone_index_samples: str = Field(default="sample-logs-index", description="Index name for sample logs")
+    pinecone_dimension: int = Field(default=768, description="Embedding dimension (768 for all-mpnet-base-v2)")
+    pinecone_metric: str = Field(default="cosine", description="Distance metric for vector similarity")
+
+    # Embedding Model Settings
+    embedding_model_name: str = Field(
+        default="sentence-transformers/all-mpnet-base-v2",
+        description="Sentence transformer model for embedding generation"
+    )
+    embedding_batch_size: int = Field(default=32, description="Batch size for embedding encoding")
+    embedding_normalize: bool = Field(default=True, description="Normalize embeddings to unit vectors")
+
+    # Chunking Configuration
+    chunk_size_words: int = Field(default=300, description="Number of words per document chunk")
+    chunk_overlap_words: int = Field(default=50, description="Number of words to overlap between chunks")
+    max_chunks_per_document: int = Field(default=100, description="Maximum number of chunks per document")
+
+    # Query Settings
+    pinecone_top_k: int = Field(default=10, description="Default number of results to return from queries")
+    pinecone_query_timeout: int = Field(default=10, description="Query timeout in seconds")
+
     # Sample Retention & Upload Settings
     sample_retention_enabled: bool = Field(default=True, description="Enable sample retention policy")
     sample_retention_days: int = Field(default=90, description="Days to retain samples")
@@ -114,6 +144,14 @@ class Settings(BaseSettings):
         """Validate OIDC configuration when enabled."""
         if info.data.get("oidc_enabled") and not v:
             raise ValueError("OIDC_CLIENT_ID is required when OIDC_ENABLED=true")
+        return v
+
+    @field_validator("pinecone_api_key")
+    @classmethod
+    def validate_pinecone_api_key(cls, v: str) -> str:
+        """Validate Pinecone API key is not empty."""
+        if not v or v.strip() == "":
+            raise ValueError("PINECONE_API_KEY must be set to a valid API key")
         return v
 
     @property

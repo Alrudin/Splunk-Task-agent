@@ -38,6 +38,7 @@ aioboto3>=12.0.0                    # Async wrapper for boto3 for FastAPI stream
 
 # Vector Database
 pinecone-client>=3.0.0              # Pinecone vector database client
+sentence-transformers>=2.3.0        # Pre-trained models for embedding generation
 
 # LLM Integration
 # Note: Ollama client library to be determined based on latest best practices

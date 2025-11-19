@@ -7,3 +7,12 @@ This package contains client implementations for:
 - Vector Database (Pinecone)
 - Splunk Sandbox
 """
+
+from backend.integrations.object_storage_client import ObjectStorageClient
+from backend.integrations.pinecone_client import EmbeddingGenerator, PineconeClient
+
+__all__ = [
+    "ObjectStorageClient",
+    "PineconeClient",
+    "EmbeddingGenerator",
+]

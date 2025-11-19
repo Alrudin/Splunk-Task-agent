@@ -20,6 +20,15 @@ from backend.schemas.request import (
     UploadSampleResponse,
 )
 
+# Approval schemas
+from backend.schemas.approval import (
+    ApproveRequestRequest,
+    RejectRequestRequest,
+    ApprovalResponse,
+    PendingApprovalListResponse,
+    ApprovalStatisticsResponse,
+)
+
 __all__ = [
     # Auth
     "LoginRequest",
@@ -35,4 +44,10 @@ __all__ = [
     "SampleResponse",
     "SampleListResponse",
     "UploadSampleResponse",
+    # Approvals
+    "ApproveRequestRequest",
+    "RejectRequestRequest",
+    "ApprovalResponse",
+    "PendingApprovalListResponse",
+    "ApprovalStatisticsResponse",
 ]
