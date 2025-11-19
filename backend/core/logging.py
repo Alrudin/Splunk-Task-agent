@@ -7,7 +7,7 @@ including custom processors for audit context (correlation_id, user_id, request_
 
 import logging
 import sys
-from typing import Any, Dict
+from typing import Any
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -129,7 +129,7 @@ def bind_audit_context(**kwargs: Any) -> None:
     Args:
         **kwargs: Key-value pairs to bind to logging context
     """
-    structlog.contextvars.clear_contextvars()
+
     structlog.contextvars.bind_contextvars(**kwargs)
 
 

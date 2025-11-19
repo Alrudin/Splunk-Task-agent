@@ -3,7 +3,6 @@ FastAPI router for audit log API endpoints.
 
 Provides endpoints for querying and filtering audit logs with role-based access control.
 """
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -11,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.dependencies import get_current_active_user, require_any_role
-from backend.core.exceptions import NotFoundError
+from backend.core.exceptions import RequestNotFoundError
 from backend.database import get_db
 from backend.models.audit_log import AuditLog
 from backend.models.enums import UserRoleEnum
@@ -51,22 +50,8 @@ async def query_audit_logs(
 
     Accessible by ADMIN and APPROVER roles only.
     """
-    # Build filters dictionary from params
-    filters = {}
-    if params.user_id:
-        filters["user_id"] = params.user_id
-    if params.action:
-        filters["action"] = params.action
-    if params.entity_type:
-        filters["entity_type"] = params.entity_type
-    if params.entity_id:
-        filters["entity_id"] = params.entity_id
-    if params.correlation_id:
-        filters["correlation_id"] = params.correlation_id
-    if params.start_date:
-        filters["start_date"] = params.start_date
-    if params.end_date:
-        filters["end_date"] = params.end_date
+    # Build filters dictionary from params using dictionary comprehension
+    filters = {k: v for k, v in params.model_dump().items() if v is not None and k not in ['skip', 'limit']}
 
     # Query audit logs
     audit_repo = AuditLogRepository(db)
@@ -74,21 +59,7 @@ async def query_audit_logs(
 
     # Count total matching records
     count_stmt = select(func.count(AuditLog.id))
-    if filters:
-        if "user_id" in filters:
-            count_stmt = count_stmt.where(AuditLog.user_id == filters["user_id"])
-        if "action" in filters:
-            count_stmt = count_stmt.where(AuditLog.action == filters["action"])
-        if "entity_type" in filters:
-            count_stmt = count_stmt.where(AuditLog.entity_type == filters["entity_type"])
-        if "entity_id" in filters:
-            count_stmt = count_stmt.where(AuditLog.entity_id == filters["entity_id"])
-        if "correlation_id" in filters:
-            count_stmt = count_stmt.where(AuditLog.correlation_id == filters["correlation_id"])
-        if "start_date" in filters:
-            count_stmt = count_stmt.where(AuditLog.timestamp >= filters["start_date"])
-        if "end_date" in filters:
-            count_stmt = count_stmt.where(AuditLog.timestamp <= filters["end_date"])
+    count_stmt = _apply_audit_log_filters(count_stmt, filters)
 
     result = await db.execute(count_stmt)
     total = result.scalar() or 0
@@ -102,6 +73,25 @@ async def query_audit_logs(
         skip=params.skip,
         limit=params.limit,
     )
+
+def _apply_audit_log_filters(query, filters):
+    if not filters:
+        return query
+    if "user_id" in filters:
+        query = query.where(AuditLog.user_id == filters["user_id"])
+    if "action" in filters:
+        query = query.where(AuditLog.action == filters["action"])
+    if "entity_type" in filters:
+        query = query.where(AuditLog.entity_type == filters["entity_type"])
+    if "entity_id" in filters:
+        query = query.where(AuditLog.entity_id == filters["entity_id"])
+    if "correlation_id" in filters:
+        query = query.where(AuditLog.correlation_id == filters["correlation_id"])
+    if "start_date" in filters:
+        query = query.where(AuditLog.timestamp >= filters["start_date"])
+    if "end_date" in filters:
+        query = query.where(AuditLog.timestamp <= filters["end_date"])
+    return query
 
 
 @router.get(
@@ -120,7 +110,7 @@ async def get_audit_log_by_id(
     audit_log = await audit_repo.get_by_id(audit_id)
 
     if not audit_log:
-        raise NotFoundError(f"Audit log with ID {audit_id} not found")
+        raise RequestNotFoundError(f"Audit log with ID {audit_id} not found")
 
     return AuditLogResponse.model_validate(audit_log)
 

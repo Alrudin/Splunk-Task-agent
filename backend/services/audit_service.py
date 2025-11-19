@@ -178,12 +178,12 @@ class AuditService:
         Returns:
             Created AuditLog object
         """
-        # Determine specific download action type
-        action = AuditAction.TA_DOWNLOAD if entity_type == "TARevision" else AuditAction.DOWNLOAD
-
-        if entity_type == "DebugBundle":
-            action = AuditAction.DEBUG_BUNDLE_DOWNLOAD
-
+        # Determine specific download action type using a mapping for maintainability
+        action_map = {
+            "TARevision": AuditAction.TA_DOWNLOAD,
+            "DebugBundle": AuditAction.DEBUG_BUNDLE_DOWNLOAD,
+        }
+        action = action_map.get(entity_type, AuditAction.DOWNLOAD)
         return await self.log_action(
             user_id=user_id,
             action=action,
@@ -214,12 +214,12 @@ class AuditService:
         Returns:
             Created AuditLog object
         """
-        # Determine specific upload action type
-        action = AuditAction.SAMPLE_UPLOAD if entity_type == "LogSample" else AuditAction.UPLOAD
-
-        if entity_type == "KnowledgeDocument":
-            action = AuditAction.KNOWLEDGE_UPLOAD
-
+        # Determine specific upload action type using a mapping
+        action_map = {
+            "LogSample": AuditAction.SAMPLE_UPLOAD,
+            "KnowledgeDocument": AuditAction.KNOWLEDGE_UPLOAD,
+        }
+        action = action_map.get(entity_type, AuditAction.UPLOAD)
         return await self.log_action(
             user_id=user_id,
             action=action,

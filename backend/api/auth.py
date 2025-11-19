@@ -27,7 +27,7 @@ from backend.schemas.auth import (
 )
 from backend.core.config import settings
 from backend.core.dependencies import get_current_active_user, get_audit_service
-from backend.core.exceptions import InvalidCredentialsError, ProviderNotEnabledError
+from backend.core.exceptions import ProviderNotEnabledError
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -103,7 +103,7 @@ async def login_local(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -161,7 +161,7 @@ async def register(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -215,46 +215,11 @@ async def saml_callback(
         "SAML authentication requires integration with a SAML library. "
         "Please configure python3-saml or onelogin-saml and implement response parsing."
     )
-
-    # Generate tokens
-    roles = [role.name for role in user.roles]
-    access_token = auth_service.create_access_token(user.id, roles)
-    refresh_token = auth_service.create_refresh_token(user.id)
-
-    # This code is unreachable due to NotImplementedEndpointError above
-    # But keeping the pattern for when SAML is implemented
-    # Log audit event
-    # await audit_service.log_action(
-    #     user_id=user.id,
-    #     action=AuditAction.LOGIN,
-    #     entity_type="user",
-    #     entity_id=user.id,
-    #     details={"auth_provider": "saml", "username": user.username},
-    #     request=request
-    # )
-    # await db.commit()
-
-    # Build response
-    # user_response = UserResponse(
-    #     id=user.id,
-    #     username=user.username,
-    #     email=user.email,
-    #     full_name=user.full_name,
-    #     is_active=user.is_active,
-    #     auth_provider=user.auth_provider,
-    #     roles=roles,
-    #     last_login=user.last_login,
-    #     created_at=user.created_at
-    # )
-
-    # token_response = TokenResponse(
-    #     access_token=access_token,
-    #     refresh_token=refresh_token,
-    #     token_type="bearer",
-    #     expires_in=settings.jwt_expiration_minutes * 60
-    # )
-
-    # return LoginResponse(user=user_response, tokens=token_response)
+    # The following return is unreachable, but ensures the function always returns a value for type checking.
+    return LoginResponse(
+        user=None,
+        tokens=None
+    )
 
 
 @router.post(
@@ -302,7 +267,7 @@ async def oauth_callback(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -363,7 +328,7 @@ async def oidc_callback(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
-        auth_provider=user.auth_provider,
+        auth_provider=user.auth_provider if user.auth_provider is not None else "",
         roles=roles,
         last_login=user.last_login,
         created_at=user.created_at
@@ -419,7 +384,7 @@ async def get_me(
         email=current_user.email,
         full_name=current_user.full_name,
         is_active=current_user.is_active,
-        auth_provider=current_user.auth_provider,
+        auth_provider=current_user.auth_provider if current_user.auth_provider is not None else "",
         roles=roles,
         last_login=current_user.last_login,
         created_at=current_user.created_at
