@@ -239,3 +239,22 @@ async def get_request_service(
         sample_repository=sample_repo,
         storage_client=storage_client,
     )
+
+
+async def get_audit_service(
+    db: AsyncSession = Depends(get_db),
+) -> "AuditService":
+    """
+    Get audit service instance with injected repository.
+
+    Args:
+        db: Database session
+
+    Returns:
+        AuditService instance configured for audit logging
+    """
+    from backend.services.audit_service import AuditService
+    from backend.repositories.audit_log_repository import AuditLogRepository
+
+    audit_repo = AuditLogRepository(db)
+    return AuditService(repository=audit_repo)

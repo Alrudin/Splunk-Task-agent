@@ -43,7 +43,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         details: Optional[Dict[str, Any]] = None,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
-        correlation_id: Optional[UUID] = None
+        correlation_id: Optional[str] = None
     ) -> AuditLog:
         """Create audit log entry with all fields."""
         audit_log = AuditLog(
@@ -104,7 +104,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         )
         return list(result.scalars().all())
 
-    async def get_by_correlation_id(self, correlation_id: UUID) -> List[AuditLog]:
+    async def get_by_correlation_id(self, correlation_id: str) -> List[AuditLog]:
         """Get all logs in a correlated flow."""
         result = await self.session.execute(
             select(AuditLog)

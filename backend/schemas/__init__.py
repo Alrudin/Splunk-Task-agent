@@ -20,6 +20,13 @@ from backend.schemas.request import (
     UploadSampleResponse,
 )
 
+# Audit schemas
+from backend.schemas.audit import (
+    AuditLogResponse,
+    AuditLogListResponse,
+    AuditLogQueryParams,
+)
+
 __all__ = [
     # Auth
     "LoginRequest",
@@ -35,4 +42,8 @@ __all__ = [
     "SampleResponse",
     "SampleListResponse",
     "UploadSampleResponse",
+    # Audit
+    "AuditLogResponse",
+    "AuditLogListResponse",
+    "AuditLogQueryParams",
 ]

@@ -48,7 +48,7 @@ class AuditLog(Base):
     user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Correlation
-    correlation_id: Mapped[Optional[UUID]] = mapped_column(nullable=True, index=True)  # For tracing related actions
+    correlation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # For tracing related actions
 
     # Timestamp
     timestamp: Mapped[datetime] = mapped_column(
