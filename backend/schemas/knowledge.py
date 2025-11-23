@@ -69,10 +69,29 @@ class KnowledgeDocumentResponse(BaseModel):
     @classmethod
     def extract_username(cls, values):
         """Extract username from uploaded_by_user relationship"""
-        if hasattr(values, 'uploaded_by_user') and values.uploaded_by_user:
-            values.uploaded_by_username = values.uploaded_by_user.username
-        elif isinstance(values, dict) and 'uploaded_by_user' in values and values['uploaded_by_user']:
-            values['uploaded_by_username'] = values['uploaded_by_user'].username
+        # Handle object form
+        if hasattr(values, 'uploaded_by_user'):
+            user_obj = values.uploaded_by_user
+            if user_obj:
+                if hasattr(user_obj, 'username'):
+                    values.uploaded_by_username = user_obj.username
+                elif isinstance(user_obj, dict) and 'username' in user_obj:
+                    values.uploaded_by_username = user_obj['username']
+        # Handle dict form
+        elif isinstance(values, dict) and 'uploaded_by_user' in values:
+            user_obj = values['uploaded_by_user']
+            if user_obj:
+                if hasattr(user_obj, 'username'):
+                    values['uploaded_by_username'] = user_obj.username
+                elif isinstance(user_obj, dict) and 'username' in user_obj:
+                    values['uploaded_by_username'] = user_obj['username']
+
+        # Ensure uploaded_by_username has a default value if not set
+        if isinstance(values, dict) and 'uploaded_by_username' not in values:
+            values['uploaded_by_username'] = ""
+        elif hasattr(values, '__dict__') and not hasattr(values, 'uploaded_by_username'):
+            values.uploaded_by_username = ""
+
         return values
 
 

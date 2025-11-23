@@ -18,12 +18,9 @@ import {
   KnowledgeDocumentStatistics
 } from '@/types/knowledge';
 import { formatBytes, formatDate } from '@/utils/formatters';
-import { useAuth } from '@/contexts/AuthContext';
-import { UserRoleEnum } from '@/types/user';
 import toast from 'react-hot-toast';
 
 const KnowledgeUpload: React.FC = () => {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   // State management
@@ -39,11 +36,6 @@ const KnowledgeUpload: React.FC = () => {
   const [pageSize] = useState(20);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Check user permissions
-  const hasAccess = user?.roles?.some((role: { name: string }) =>
-    [UserRoleEnum.ADMIN, UserRoleEnum.KNOWLEDGE_MANAGER].includes(role.name as UserRoleEnum)
-  );
-
   // Fetch documents query
   const { data: documentsData, isLoading: isLoadingDocuments, refetch: refetchDocuments } = useQuery({
     queryKey: ['knowledgeDocuments', currentPage, pageSize, filterDocumentType, searchQuery],
@@ -53,15 +45,13 @@ const KnowledgeUpload: React.FC = () => {
       filterDocumentType || undefined,
       searchQuery || undefined
     ),
-    refetchInterval: 10000, // Auto-refresh every 10 seconds
-    enabled: hasAccess
+    refetchInterval: 10000 // Auto-refresh every 10 seconds
   });
 
   // Fetch statistics query
   const { data: statistics } = useQuery({
     queryKey: ['knowledgeStatistics'],
-    queryFn: getKnowledgeStatistics,
-    enabled: hasAccess
+    queryFn: getKnowledgeStatistics
   });
 
   // Upload mutation
@@ -196,18 +186,6 @@ const KnowledgeUpload: React.FC = () => {
       reindexMutation.mutate(document.id);
     }
   };
-
-  // Check access
-  if (!hasAccess) {
-    return (
-      <div className="container mx-auto p-8">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg">
-          <p className="font-semibold">Access Denied</p>
-          <p>You need ADMIN or KNOWLEDGE_MANAGER role to access this page.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="container mx-auto p-6">

@@ -232,11 +232,14 @@ class KnowledgeService:
             # Stream upload to MinIO
             file_stream = BytesIO(file_content)
             upload_result = await self.storage_client.upload_file_async(
-                bucket_name=bucket,
-                object_name=storage_key,
-                file_stream=file_stream,
+                file_stream,  # First positional argument
+                bucket=bucket,
+                key=storage_key,
                 content_type=file.content_type or 'application/octet-stream'
             )
+
+            # Use the size from upload result for consistency
+            actual_file_size = upload_result.get('size', file_size)
 
             # Create database record
             document = await self.repository.create_knowledge_document(
@@ -245,7 +248,7 @@ class KnowledgeService:
                 document_type=document_type,
                 storage_key=storage_key,
                 storage_bucket=bucket,
-                file_size=file_size,
+                file_size=actual_file_size,
                 uploaded_by=uploaded_by,
                 extra_metadata=extra_metadata,
                 pinecone_indexed=False
@@ -326,6 +329,9 @@ class KnowledgeService:
                 index_name = settings.pinecone_index_tas
             else:
                 raise ValidationError(f"Unknown document type for indexing: {document.document_type}")
+
+            # Ensure index exists before upsert
+            await self.pinecone_client.ensure_index_exists(index_name=index_name)
 
             # Prepare document for Pinecone
             pinecone_document = {

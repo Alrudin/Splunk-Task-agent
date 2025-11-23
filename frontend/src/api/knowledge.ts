@@ -11,6 +11,30 @@ import {
 } from '@/types/knowledge';
 
 /**
+ * Convert snake_case backend response to camelCase frontend model
+ */
+function mapDocumentFromBackend(doc: any): KnowledgeDocument {
+  return {
+    id: doc.id,
+    title: doc.title,
+    description: doc.description,
+    documentType: doc.document_type,
+    storageKey: doc.storage_key,
+    storageBucket: doc.storage_bucket,
+    fileSize: doc.file_size,
+    uploadedBy: doc.uploaded_by,
+    uploadedByUsername: doc.uploaded_by_username,
+    pineconeIndexed: doc.pinecone_indexed,
+    pineconeIndexName: doc.pinecone_index_name,
+    embeddingCount: doc.embedding_count,
+    extraMetadata: doc.extra_metadata,
+    isActive: doc.is_active,
+    createdAt: doc.created_at,
+    updatedAt: doc.updated_at
+  };
+}
+
+/**
  * Upload a new knowledge document
  */
 export async function uploadKnowledgeDocument(
@@ -42,7 +66,7 @@ export async function uploadKnowledgeDocument(
     onUploadProgress
   });
 
-  return response.data;
+  return mapDocumentFromBackend(response.data);
 }
 
 /**
@@ -65,7 +89,12 @@ export async function listKnowledgeDocuments(
   }
 
   const response = await api.get('/api/v1/admin/knowledge', { params });
-  return response.data;
+  return {
+    documents: response.data.documents.map(mapDocumentFromBackend),
+    total: response.data.total,
+    skip: response.data.skip,
+    limit: response.data.limit
+  };
 }
 
 /**
@@ -73,7 +102,7 @@ export async function listKnowledgeDocuments(
  */
 export async function getKnowledgeDocument(documentId: string): Promise<KnowledgeDocument> {
   const response = await api.get(`/api/v1/admin/knowledge/${documentId}`);
-  return response.data;
+  return mapDocumentFromBackend(response.data);
 }
 
 /**
@@ -98,7 +127,10 @@ export async function reindexKnowledgeDocument(
  */
 export async function getKnowledgeStatistics(): Promise<KnowledgeDocumentStatistics> {
   const response = await api.get('/api/v1/admin/knowledge/statistics');
-  return response.data;
+  return {
+    byType: response.data.by_type,
+    indexingStatus: response.data.indexing_status
+  };
 }
 
 /**

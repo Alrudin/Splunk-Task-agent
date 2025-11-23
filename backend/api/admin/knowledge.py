@@ -7,14 +7,13 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, Query, Path, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from backend.core.dependencies import (
-    get_db,
     get_current_user,
     require_any_role,
     get_audit_service,
-    get_storage_client
+    get_storage_client,
+    get_knowledge_service,
+    get_db
 )
 from backend.models.enums import UserRoleEnum, AuditAction
 from backend.models.user import User
@@ -26,8 +25,8 @@ from backend.schemas.knowledge import (
 from backend.services.audit import AuditService
 from backend.services.knowledge_service import KnowledgeService
 from backend.repositories.knowledge_document_repository import KnowledgeDocumentRepository
-from backend.integrations.pinecone_client import get_pinecone_client
 from backend.integrations.object_storage_client import ObjectStorageClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from backend.tasks.index_knowledge_task import index_knowledge_document_task
 from backend.core.config import settings
 from backend.core.logging import get_logger
@@ -40,19 +39,6 @@ router = APIRouter(
     prefix="/admin/knowledge",
     tags=["Admin - Knowledge Management"]
 )
-
-
-async def get_knowledge_service(db: AsyncSession = Depends(get_db)) -> KnowledgeService:
-    """Get knowledge service with dependencies"""
-    knowledge_repository = KnowledgeDocumentRepository(db)
-    storage_client = get_storage_client()
-    pinecone_client = get_pinecone_client()
-
-    return KnowledgeService(
-        knowledge_document_repository=knowledge_repository,
-        storage_client=storage_client,
-        pinecone_client=pinecone_client
-    )
 
 
 @router.post("/upload", response_model=KnowledgeDocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -121,13 +107,8 @@ async def upload_knowledge_document(
             detail="TA archive document type requires .tgz or .tar.gz file extension"
         )
 
-    # Validate file size
-    max_size_bytes = settings.max_sample_size_mb * 1024 * 1024
-    if file.size and file.size > max_size_bytes:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File size exceeds maximum allowed size of {settings.max_sample_size_mb} MB"
-        )
+    # Note: File size validation is handled by KnowledgeService.upload_document
+    # which checks the actual byte length against MAX_SAMPLE_SIZE_MB
 
     # Parse extra metadata if provided
     parsed_metadata = None
