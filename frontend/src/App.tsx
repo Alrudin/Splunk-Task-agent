@@ -12,7 +12,7 @@ import Register from './pages/Register';
 import NewRequest from './pages/NewRequest';
 import ApproverDashboard from './pages/ApproverDashboard';
 import ApprovalDetail from './pages/ApprovalDetail';
-import TAOverride from './pages/TAOverride';
+import KnowledgeUpload from './pages/Admin/KnowledgeUpload';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -142,10 +142,25 @@ function App() {
               }
             />
             <Route
+              path="/admin/knowledge"
+              element={
+                <ProtectedRoute requiredAnyRole={['ADMIN', 'KNOWLEDGE_MANAGER']}>
+                  <KnowledgeUpload />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+<<<<<<< HEAD
+              path="/admin/knowledge"
+              element={
+                <ProtectedRoute requiredAnyRole={['ADMIN', 'KNOWLEDGE_MANAGER']}>
+                  <KnowledgeUpload />
+=======
               path="/requests/:requestId/ta-override"
               element={
                 <ProtectedRoute requiredAnyRole={['APPROVER', 'ADMIN']}>
                   <TAOverride />
+>>>>>>> origin/main
                 </ProtectedRoute>
               }
             />

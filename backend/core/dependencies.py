@@ -12,6 +12,7 @@ from backend.models.enums import UserRoleEnum
 from backend.repositories.user_repository import UserRepository
 from backend.repositories.request_repository import RequestRepository
 from backend.repositories.log_sample_repository import LogSampleRepository
+from backend.repositories.knowledge_document_repository import KnowledgeDocumentRepository
 from backend.core.security import decode_jwt_token
 from backend.core.exceptions import (
     InvalidTokenError,
@@ -323,48 +324,25 @@ async def get_approval_service(
     )
 
 
-async def get_ta_generation_service(
-    db: AsyncSession = Depends(get_db),
-) -> "TAGenerationService":
-    """Get TA generation service instance with injected dependencies.
+async def get_knowledge_service(
+    db: AsyncSession = Depends(get_db)
+) -> "KnowledgeService":
+    """Get knowledge service instance with injected dependencies.
 
     Args:
         db: Database session
 
     Returns:
-        TAGenerationService instance with injected repositories and storage client
+        KnowledgeService instance with injected repositories and clients
     """
-    from backend.services.ta_generation_service import TAGenerationService
-    from backend.repositories.ta_revision_repository import TARevisionRepository
-    from backend.repositories.validation_run_repository import ValidationRunRepository
+    from backend.services.knowledge_service import KnowledgeService
 
-    ta_revision_repo = TARevisionRepository(db)
-    request_repo = RequestRepository(db)
-    validation_run_repo = ValidationRunRepository(db)
+    knowledge_repository = KnowledgeDocumentRepository(db)
     storage_client = get_storage_client()
+    pinecone_client = get_pinecone_client()
 
-    return TAGenerationService(
-        ta_revision_repository=ta_revision_repo,
-        request_repository=request_repo,
-        validation_run_repository=validation_run_repo,
+    return KnowledgeService(
+        knowledge_document_repository=knowledge_repository,
         storage_client=storage_client,
+        pinecone_client=pinecone_client
     )
-
-
-async def get_audit_service(
-    db: AsyncSession = Depends(get_db),
-) -> "AuditService":
-    """Get audit service instance with injected dependencies.
-
-    Args:
-        db: Database session
-
-    Returns:
-        AuditService instance with injected repository
-    """
-    from backend.services.audit_service import AuditService
-    from backend.repositories.audit_log_repository import AuditLogRepository
-
-    audit_repo = AuditLogRepository(db)
-
-    return AuditService(repository=audit_repo)
