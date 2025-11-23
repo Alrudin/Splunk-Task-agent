@@ -106,3 +106,53 @@ async def dispose_engine() -> None:
     Call this during application shutdown.
     """
     await engine.dispose()
+
+
+class AsyncSessionContextManager:
+    """
+    Async context manager for database sessions in Celery tasks.
+
+    This provides a clean way to manage database sessions outside of
+    FastAPI's request lifecycle, particularly for background tasks.
+
+    Usage:
+        async with get_async_session_for_task() as session:
+            repo = RequestRepository(session)
+            request = await repo.get_by_id(request_id)
+            # ... do work ...
+            await session.commit()
+    """
+
+    def __init__(self):
+        self.session = None
+
+    async def __aenter__(self) -> AsyncSession:
+        self.session = async_session_factory()
+        return self.session
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            if exc_type is not None:
+                await self.session.rollback()
+            await self.session.close()
+        return False  # Don't suppress exceptions
+
+
+def get_async_session_for_task() -> AsyncSessionContextManager:
+    """
+    Get an async session context manager for Celery tasks.
+
+    This function returns a context manager that creates a new AsyncSession
+    and ensures proper cleanup even if the task fails.
+
+    Usage:
+        async with get_async_session_for_task() as session:
+            repo = RequestRepository(session)
+            request = await repo.get_by_id(request_id)
+            # ... do work ...
+            await session.commit()
+
+    Returns:
+        AsyncSessionContextManager that yields AsyncSession
+    """
+    return AsyncSessionContextManager()
