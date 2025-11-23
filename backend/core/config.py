@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     max_sample_size_mb: int = Field(default=500, description="Maximum sample file size in MB")
     upload_chunk_size: int = Field(default=1048576, description="Upload chunk size in bytes (default 1MB)")
 
+    # TA Override Settings
+    max_ta_file_size_mb: int = Field(default=100, description="Maximum TA file size in MB for manual overrides")
+
     # Ollama LLM Settings
     ollama_host: str = Field(default="localhost", description="Ollama server host")
     ollama_port: int = Field(default=11434, description="Ollama server port")

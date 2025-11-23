@@ -175,6 +175,47 @@ class NoSamplesAttachedError(AppException):
         )
 
 
+# TA-related exceptions
+class TARevisionNotFoundError(AppException):
+    """TA revision not found."""
+
+    def __init__(self, detail: str = "TA revision not found"):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail
+        )
+
+
+class InvalidTAFileError(AppException):
+    """Invalid TA file format."""
+
+    def __init__(self, detail: str = "Invalid TA file. Must be .tgz or .tar.gz"):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
+
+
+class TAFileSizeExceededError(AppException):
+    """TA file size exceeds maximum allowed."""
+
+    def __init__(self, max_size_mb: int = 100):
+        super().__init__(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"TA file size exceeds maximum allowed size of {max_size_mb}MB"
+        )
+
+
+class ValidationRunNotFoundError(AppException):
+    """Validation run not found."""
+
+    def __init__(self, detail: str = "Validation run not found"):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail
+        )
+
+
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     """
     Global exception handler for AppException instances.

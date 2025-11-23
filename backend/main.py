@@ -16,6 +16,7 @@ from backend.core.exceptions import AppException, app_exception_handler
 from backend.api.auth import router as auth_router
 from backend.api.requests import router as requests_router
 from backend.api.approvals import router as approvals_router
+from backend.api.ta import router as ta_router
 from backend.database import check_db_connection, dispose_engine
 
 
@@ -147,6 +148,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(requests_router, prefix=settings.api_prefix)
 app.include_router(approvals_router, prefix=settings.api_prefix)
+app.include_router(ta_router, prefix=settings.api_prefix)
 
 # TODO: Add more routers here as they are implemented
 # app.include_router(admin_router, prefix=settings.api_prefix)

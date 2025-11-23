@@ -1,581 +1,669 @@
 """
-TA Generation Service for creating Splunk Technology Add-on packages.
+TA Generation Service for managing TA packaging and manual override logic.
 
-This service handles the packaging logic for TAs:
-- Creating proper TA directory structure
-- Writing .conf files in Splunk format
-- Generating metadata and documentation
-- Creating .tgz archives for distribution
-
-Example usage:
-    ```python
-    storage_client = ObjectStorageClient()
-    ta_service = TAGenerationService(storage_client)
-
-    package_path, checksum = await ta_service.create_ta_package(
-        ta_name="TA-custom-logs",
-        ta_config={
-            "inputs_conf": {...},
-            "props_conf": {...},
-            "transforms_conf": {...},
-            "cim_mappings": {...}
-        }
-    )
-    ```
+This service handles business logic for:
+- Creating manual TA revisions from uploaded files
+- Getting TA revisions for download
+- Triggering re-validation of TA revisions
 """
-
 import hashlib
-import os
-import shutil
-import tarfile
-import tempfile
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional, Tuple
+from uuid import UUID
 
 import structlog
+from fastapi import UploadFile
 
+from backend.core.config import settings
+from backend.core.exceptions import (
+    InsufficientPermissionsError,
+    InvalidRequestStateError,
+    RequestNotFoundError,
+    TARevisionNotFoundError,
+    InvalidTAFileError,
+    TAFileSizeExceededError,
+)
 from backend.integrations.object_storage_client import ObjectStorageClient
+from backend.models.enums import (
+    RequestStatus,
+    TARevisionType,
+    UserRoleEnum,
+    ValidationStatus,
+)
+from backend.models.ta_revision import TARevision
+from backend.models.user import User
+from backend.models.validation_run import ValidationRun
+from backend.repositories.request_repository import RequestRepository
+from backend.repositories.ta_revision_repository import TARevisionRepository
+from backend.repositories.validation_run_repository import ValidationRunRepository
 
 logger = structlog.get_logger(__name__)
 
+# Allowed states for manual override
+ALLOWED_OVERRIDE_STATES = {
+    RequestStatus.APPROVED,
+    RequestStatus.GENERATING_TA,
+    RequestStatus.VALIDATING,
+    RequestStatus.COMPLETED,
+    RequestStatus.FAILED,
+}
+
 
 class TAGenerationService:
-    """
-    Service for generating Splunk TA packages.
+    """Service for managing TA generation and manual overrides."""
 
-    Creates complete TA directory structures with all required configuration
-    files, metadata, and documentation, then packages them as .tgz archives.
-    """
+    # Allowed file extensions for TA uploads
+    ALLOWED_EXTENSIONS = (".tgz", ".tar.gz")
 
-    def __init__(self, storage_client: Optional[ObjectStorageClient] = None):
-        """
-        Initialize TAGenerationService.
-
-        Args:
-            storage_client: Optional ObjectStorageClient for file operations
-        """
-        self.storage_client = storage_client
-        self.logger = logger.bind(component="ta_generation_service")
-        self.logger.info("ta_generation_service_initialized")
-
-    async def create_ta_package(
+    def __init__(
         self,
-        ta_name: str,
-        ta_config: Dict[str, Any],
-    ) -> Tuple[str, str]:
+        ta_revision_repository: TARevisionRepository,
+        request_repository: RequestRepository,
+        validation_run_repository: ValidationRunRepository,
+        storage_client: ObjectStorageClient,
+    ):
         """
-        Create a complete TA package from configuration.
+        Initialize TA generation service.
 
         Args:
-            ta_name: Name of the TA (e.g., "TA-custom-logs")
-            ta_config: Dict containing inputs_conf, props_conf, transforms_conf, cim_mappings
+            ta_revision_repository: Repository for TA revision operations
+            request_repository: Repository for request operations
+            validation_run_repository: Repository for validation run operations
+            storage_client: Client for object storage operations
+        """
+        self.ta_revision_repo = ta_revision_repository
+        self.request_repo = request_repository
+        self.validation_run_repo = validation_run_repository
+        self.storage = storage_client
+
+    async def create_manual_revision(
+        self,
+        request_id: UUID,
+        file: UploadFile,
+        current_user: User,
+    ) -> Tuple[TARevision, ValidationRun]:
+        """
+        Process manual TA override upload.
+
+        Args:
+            request_id: Parent request ID
+            file: Uploaded TA package file
+            current_user: User performing the override
 
         Returns:
-            Tuple of (package_path, checksum)
+            Tuple of (TARevision, ValidationRun)
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            InsufficientPermissionsError: If user doesn't have access
+            InvalidRequestStateError: If request state doesn't allow override
+            InvalidTAFileError: If file is not a valid TA package
+            TAFileSizeExceededError: If file exceeds size limit
         """
-        self.logger.info("creating_ta_package", ta_name=ta_name)
+        log = logger.bind(
+            request_id=str(request_id),
+            user_id=str(current_user.id),
+            filename=file.filename,
+        )
+        log.info("create_manual_revision_started")
 
-        # Ensure TA name follows convention
-        if not ta_name.startswith("TA-"):
-            ta_name = f"TA-{ta_name}"
+        # Validate request exists
+        request = await self.request_repo.get_by_id(request_id)
+        if not request:
+            log.warning("create_manual_revision_request_not_found")
+            raise RequestNotFoundError()
 
-        # Sanitize TA name
-        ta_name = self._sanitize_name(ta_name)
-
-        # Create temporary directory for TA structure
-        temp_dir = tempfile.mkdtemp(prefix="splunk_ta_")
-        ta_dir = os.path.join(temp_dir, ta_name)
-
-        try:
-            # Create directory structure
-            self._create_directory_structure(ta_dir)
-
-            # Write configuration files
-            self._write_inputs_conf(ta_dir, ta_config.get("inputs_conf", {}))
-            self._write_props_conf(ta_dir, ta_config.get("props_conf", {}))
-            self._write_transforms_conf(ta_dir, ta_config.get("transforms_conf", {}))
-
-            # Write CIM mappings (eventtypes.conf, tags.conf)
-            cim_mappings = ta_config.get("cim_mappings", {})
-            self._write_eventtypes_conf(ta_dir, cim_mappings)
-            self._write_tags_conf(ta_dir, cim_mappings)
-
-            # Write metadata
-            self._write_default_meta(ta_dir, ta_name)
-            self._write_app_conf(ta_dir, ta_name, ta_config)
-
-            # Write documentation
-            self._write_readme(ta_dir, ta_name, ta_config)
-
-            # Create tarball
-            package_path = self._create_tarball(temp_dir, ta_name)
-
-            # Calculate checksum
-            checksum = self._calculate_checksum(package_path)
-
-            self.logger.info(
-                "ta_package_created",
-                ta_name=ta_name,
-                package_path=package_path,
-                checksum=checksum,
+        # Check authorization (APPROVER or ADMIN role)
+        user_roles = [role.name for role in current_user.roles]
+        is_authorized = (
+            UserRoleEnum.APPROVER.value in user_roles
+            or UserRoleEnum.ADMIN.value in user_roles
+            or current_user.is_superuser
+        )
+        if not is_authorized:
+            log.warning("create_manual_revision_unauthorized")
+            raise InsufficientPermissionsError(
+                "Manual override requires APPROVER or ADMIN role"
             )
 
-            return package_path, checksum
-
-        except Exception as e:
-            self.logger.error(
-                "ta_package_creation_failed",
-                ta_name=ta_name,
-                error=str(e),
-                exc_info=True,
+        # Validate request state allows manual override
+        if request.status not in ALLOWED_OVERRIDE_STATES:
+            log.warning(
+                "create_manual_revision_invalid_state",
+                status=request.status.value
             )
-            # Cleanup on failure
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise
-
-    def _sanitize_name(self, name: str) -> str:
-        """Sanitize TA name to be filesystem-safe."""
-        # Replace spaces with hyphens, remove special chars
-        sanitized = name.replace(" ", "-")
-        sanitized = "".join(c for c in sanitized if c.isalnum() or c in "-_")
-        return sanitized
-
-    def _create_directory_structure(self, ta_dir: str) -> None:
-        """Create the standard TA directory structure."""
-        directories = [
-            ta_dir,
-            os.path.join(ta_dir, "default"),
-            os.path.join(ta_dir, "metadata"),
-            os.path.join(ta_dir, "bin"),
-            os.path.join(ta_dir, "static"),
-        ]
-        for directory in directories:
-            os.makedirs(directory, exist_ok=True)
-
-        self.logger.debug("directory_structure_created", ta_dir=ta_dir)
-
-    def _write_conf_file(
-        self,
-        file_path: str,
-        stanzas: List[Dict[str, Any]],
-        header_comment: Optional[str] = None,
-    ) -> None:
-        """
-        Write a Splunk .conf file from stanza definitions.
-
-        Args:
-            file_path: Path to write the file
-            stanzas: List of stanza dicts with 'stanza_name' and 'settings'
-            header_comment: Optional header comment for the file
-        """
-        lines = []
-
-        # Add header comment
-        if header_comment:
-            lines.append(f"# {header_comment}")
-        lines.append(f"# Generated by Splunk TA Generator")
-        lines.append(f"# Generated at: {datetime.utcnow().isoformat()}")
-        lines.append("")
-
-        for stanza in stanzas:
-            stanza_name = stanza.get("stanza_name", "default")
-            lines.append(f"[{stanza_name}]")
-
-            # Write settings
-            settings = stanza.get("settings", {})
-            if not settings:
-                # Use stanza dict directly, excluding stanza_name
-                settings = {k: v for k, v in stanza.items() if k != "stanza_name"}
-
-            for key, value in settings.items():
-                # Skip None values
-                if value is None:
-                    continue
-
-                # Handle boolean values
-                if isinstance(value, bool):
-                    value = "true" if value else "false"
-
-                # Handle list values (for transforms REPORT, etc.)
-                if isinstance(value, list):
-                    value = ", ".join(str(v) for v in value)
-
-                # Escape special characters in values
-                value_str = str(value)
-                lines.append(f"{key} = {value_str}")
-
-            lines.append("")  # Blank line between stanzas
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-
-        self.logger.debug("conf_file_written", file_path=file_path)
-
-    def _write_inputs_conf(self, ta_dir: str, inputs_conf: Dict[str, Any]) -> None:
-        """Write inputs.conf file."""
-        stanzas = inputs_conf.get("stanzas", [])
-        if stanzas:
-            self._write_conf_file(
-                os.path.join(ta_dir, "default", "inputs.conf"),
-                stanzas,
-                header_comment="Input configuration for data collection",
+            raise InvalidRequestStateError(
+                f"Cannot upload manual override in {request.status.value} state. "
+                f"Allowed states: {', '.join(s.value for s in ALLOWED_OVERRIDE_STATES)}"
             )
 
-    def _write_props_conf(self, ta_dir: str, props_conf: Dict[str, Any]) -> None:
-        """Write props.conf file."""
-        stanzas = props_conf.get("stanzas", [])
-        if stanzas:
-            self._write_conf_file(
-                os.path.join(ta_dir, "default", "props.conf"),
-                stanzas,
-                header_comment="Parsing configuration for data extraction",
-            )
+        # Validate file extension
+        self._validate_file_extension(file.filename)
 
-    def _write_transforms_conf(self, ta_dir: str, transforms_conf: Dict[str, Any]) -> None:
-        """Write transforms.conf file."""
-        stanzas = transforms_conf.get("stanzas", [])
-        if stanzas:
-            self._write_conf_file(
-                os.path.join(ta_dir, "default", "transforms.conf"),
-                stanzas,
-                header_comment="Field extraction transforms",
-            )
+        # Pre-upload file size validation
+        # Check if UploadFile.size is available (populated from Content-Length header)
+        # or determine size by seeking to end of file
+        max_size_bytes = getattr(settings, 'max_ta_file_size_mb', 100) * 1024 * 1024
+        apparent_size = None
 
-    def _write_eventtypes_conf(self, ta_dir: str, cim_mappings: Dict[str, Any]) -> None:
-        """Write eventtypes.conf from CIM mappings."""
-        eventtypes = cim_mappings.get("eventtypes", [])
-        if eventtypes:
-            stanzas = []
-            for et in eventtypes:
-                stanzas.append({
-                    "stanza_name": et.get("name", "unknown"),
-                    "settings": {
-                        "search": et.get("search", ""),
-                    }
-                })
-            self._write_conf_file(
-                os.path.join(ta_dir, "default", "eventtypes.conf"),
-                stanzas,
-                header_comment="Event type definitions for CIM compliance",
-            )
-
-    def _write_tags_conf(self, ta_dir: str, cim_mappings: Dict[str, Any]) -> None:
-        """Write tags.conf from CIM mappings."""
-        tags = cim_mappings.get("tags", {})
-        if tags:
-            stanzas = []
-            for eventtype_name, tag_list in tags.items():
-                settings = {}
-                if isinstance(tag_list, list):
-                    for tag in tag_list:
-                        settings[tag] = "enabled"
-                elif isinstance(tag_list, dict):
-                    settings = tag_list
-
-                stanzas.append({
-                    "stanza_name": f"eventtype={eventtype_name}",
-                    "settings": settings,
-                })
-            self._write_conf_file(
-                os.path.join(ta_dir, "default", "tags.conf"),
-                stanzas,
-                header_comment="Tag assignments for CIM data model compliance",
-            )
-
-    def _write_default_meta(self, ta_dir: str, ta_name: str) -> None:
-        """Write default.meta file."""
-        content = f"""# Application-level permissions
-
-[]
-access = read : [ * ], write : [ admin ]
-export = system
-
-[default]
-export = system
-
-[props]
-export = system
-
-[transforms]
-export = system
-
-[eventtypes]
-export = system
-
-[tags]
-export = system
-"""
-        meta_path = os.path.join(ta_dir, "metadata", "default.meta")
-        with open(meta_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        self.logger.debug("default_meta_written", path=meta_path)
-
-    def _write_app_conf(self, ta_dir: str, ta_name: str, ta_config: Dict[str, Any]) -> None:
-        """Write app.conf file."""
-        version = ta_config.get("version", "1.0.0")
-        description = ta_config.get("description", f"Technology Add-on for {ta_name}")
-
-        content = f"""# Splunk app configuration file
-# Generated by Splunk TA Generator
-# Generated at: {datetime.utcnow().isoformat()}
-
-[install]
-is_configured = false
-state = enabled
-build = {int(datetime.utcnow().timestamp())}
-
-[ui]
-is_visible = false
-label = {ta_name}
-
-[launcher]
-author = Splunk TA Generator
-description = {description}
-version = {version}
-
-[package]
-id = {ta_name.lower().replace('-', '_')}
-"""
-        app_conf_path = os.path.join(ta_dir, "default", "app.conf")
-        with open(app_conf_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        self.logger.debug("app_conf_written", path=app_conf_path)
-
-    def _write_readme(self, ta_dir: str, ta_name: str, ta_config: Dict[str, Any]) -> None:
-        """Write README.md documentation file."""
-        inputs = ta_config.get("inputs_conf", {}).get("stanzas", [])
-        props = ta_config.get("props_conf", {}).get("stanzas", [])
-        transforms = ta_config.get("transforms_conf", {}).get("stanzas", [])
-        cim = ta_config.get("cim_mappings", {})
-
-        # Extract sourcetypes
-        sourcetypes = []
-        for stanza in props:
-            name = stanza.get("stanza_name", "")
-            if name and not name.startswith("source::"):
-                sourcetypes.append(name)
-
-        content = f"""# {ta_name}
-
-## Overview
-
-This Technology Add-on (TA) was automatically generated by the Splunk TA Generator.
-
-**Generated:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
-
-## Installation
-
-1. Download the TA package (.tgz file)
-2. Install via Splunk Web: Apps > Manage Apps > Install app from file
-3. Or extract to `$SPLUNK_HOME/etc/apps/`
-4. Restart Splunk
-
-## Configuration
-
-### Sourcetypes
-
-This TA defines the following sourcetypes:
-
-{chr(10).join(f'- `{st}`' for st in sourcetypes) if sourcetypes else '- No sourcetypes defined'}
-
-### Inputs
-
-{len(inputs)} input stanza(s) defined in `default/inputs.conf`
-
-### Field Extractions
-
-{len(transforms)} transform stanza(s) defined in `default/transforms.conf`
-
-## CIM Compliance
-
-"""
-        data_models = cim.get("data_models", cim.get("applicable_data_models", []))
-        if data_models:
-            content += f"""This TA maps to the following CIM data models:
-
-{chr(10).join(f'- {dm}' for dm in data_models)}
-
-### Field Aliases
-
-"""
-            aliases = cim.get("field_aliases", {})
-            if aliases:
-                content += "| Original Field | CIM Field |\n|---------------|------------|\n"
-                for orig, cim_field in aliases.items():
-                    content += f"| {orig} | {cim_field} |\n"
-            else:
-                content += "No field aliases defined.\n"
+        if hasattr(file, 'size') and file.size is not None:
+            apparent_size = file.size
         else:
-            content += "No CIM data model mappings defined.\n"
+            # Try to determine size by seeking to end of file
+            try:
+                current_pos = file.file.tell()
+                file.file.seek(0, 2)  # Seek to end
+                apparent_size = file.file.tell()
+                file.file.seek(current_pos)  # Reset to original position
+            except Exception:
+                # If seek fails (e.g., non-seekable stream), skip pre-upload check
+                pass
 
-        content += """
+        if apparent_size is not None and apparent_size > max_size_bytes:
+            log.warning(
+                "create_manual_revision_file_too_large_pre_upload",
+                apparent_size=apparent_size,
+                max_size=max_size_bytes,
+            )
+            raise TAFileSizeExceededError(
+                getattr(settings, 'max_ta_file_size_mb', 100)
+            )
 
-## Support
+        # Get next version number
+        next_version = await self.ta_revision_repo.get_next_version(request_id)
 
-This TA was automatically generated. For issues or enhancements, please contact
-your Splunk administrator or regenerate with updated requirements.
-
-## Version History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | """ + datetime.utcnow().strftime('%Y-%m-%d') + """ | Initial auto-generated release |
-"""
-
-        readme_path = os.path.join(ta_dir, "README.md")
-        with open(readme_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        self.logger.debug("readme_written", path=readme_path)
-
-    def _create_tarball(self, temp_dir: str, ta_name: str) -> str:
-        """
-        Create a .tgz archive of the TA directory.
-
-        Args:
-            temp_dir: Temporary directory containing TA
-            ta_name: Name of the TA directory
-
-        Returns:
-            Path to the created tarball
-        """
-        tarball_path = os.path.join(temp_dir, f"{ta_name}.tgz")
-        ta_dir = os.path.join(temp_dir, ta_name)
-
-        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
-            tar.add(ta_dir, arcname=ta_name)
-
-        self.logger.debug(
-            "tarball_created",
-            path=tarball_path,
-            size=os.path.getsize(tarball_path),
+        # Generate storage key
+        source_system_slug = request.source_system.lower().replace(" ", "-")
+        storage_key = (
+            f"tas/{request_id}/v{next_version}/"
+            f"ta-{source_system_slug}-v{next_version}.tgz"
         )
 
-        return tarball_path
+        # Upload to storage with checksum calculation
+        log.info("create_manual_revision_uploading_to_storage")
+        upload_result = await self.storage.upload_file_async(
+            file_obj=file.file,
+            bucket=self.storage.bucket_tas,
+            key=storage_key,
+            content_type="application/gzip",
+        )
 
-    def _calculate_checksum(self, file_path: str) -> str:
-        """Calculate SHA256 checksum of a file."""
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(chunk)
-        return sha256_hash.hexdigest()
+        checksum = upload_result["checksum"]
+        file_size = upload_result["size"]
 
-    async def cleanup_temp_files(self, package_path: str) -> None:
-        """
-        Clean up temporary files after upload.
-
-        Args:
-            package_path: Path to the package file
-        """
-        try:
-            temp_dir = os.path.dirname(package_path)
-            if temp_dir and os.path.exists(temp_dir) and temp_dir.startswith(tempfile.gettempdir()):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                self.logger.debug("temp_files_cleaned", temp_dir=temp_dir)
-        except Exception as e:
-            self.logger.warning(
-                "temp_cleanup_failed",
-                path=package_path,
-                error=str(e),
+        # Post-upload file size validation (fallback for cases where pre-upload check wasn't possible)
+        # This catches cases where the file was streamed without a known size upfront.
+        # Oversize files are deleted immediately after upload to cap storage usage.
+        if file_size > max_size_bytes:
+            log.warning(
+                "create_manual_revision_file_too_large_post_upload",
+                file_size=file_size,
+                max_size=max_size_bytes,
+            )
+            # Clean up uploaded file immediately
+            try:
+                await self.storage.delete_file_async(
+                    bucket=self.storage.bucket_tas,
+                    key=storage_key,
+                )
+            except Exception:
+                log.warning("create_manual_revision_cleanup_failed")
+            raise TAFileSizeExceededError(
+                getattr(settings, 'max_ta_file_size_mb', 100)
             )
 
-    async def validate_ta_structure(self, ta_dir: str) -> Dict[str, Any]:
+        # Create TARevision record
+        ta_revision = await self.ta_revision_repo.create(
+            request_id=request_id,
+            version=next_version,
+            storage_key=storage_key,
+            storage_bucket=self.storage.bucket_tas,
+            generated_by=TARevisionType.MANUAL,
+            generated_by_user=current_user.id,
+            file_size=file_size,
+            checksum=f"sha256:{checksum}",
+        )
+
+        # Create ValidationRun record with QUEUED status
+        validation_run = await self.validation_run_repo.create(
+            request_id=request_id,
+            ta_revision_id=ta_revision.id,
+            status=ValidationStatus.QUEUED,
+        )
+
+        # Update request status to VALIDATING
+        await self.request_repo.update_status(request_id, RequestStatus.VALIDATING)
+
+        # Enqueue Celery validation task
+        # Using local import to avoid circular dependencies
+        from backend.tasks.validation import validate_ta_task
+        validate_ta_task.delay(str(validation_run.id))
+
+        log.info(
+            "create_manual_revision_completed",
+            revision_id=str(ta_revision.id),
+            version=next_version,
+            validation_run_id=str(validation_run.id),
+            validation_task_enqueued=True,
+        )
+
+        return ta_revision, validation_run
+
+    async def get_ta_for_download(
+        self,
+        request_id: UUID,
+        version: int,
+        current_user: User,
+    ) -> TARevision:
         """
-        Validate TA directory structure and configuration files.
+        Get TA revision for download with authorization check.
 
         Args:
-            ta_dir: Path to TA directory
+            request_id: Parent request ID
+            version: TA version number
+            current_user: Current user
 
         Returns:
-            Dict with validation results
+            TARevision object
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            InsufficientPermissionsError: If user doesn't have access
+            TARevisionNotFoundError: If TA revision not found
         """
-        results = {
-            "valid": True,
-            "errors": [],
-            "warnings": [],
-            "files_found": [],
+        log = logger.bind(
+            request_id=str(request_id),
+            version=version,
+            user_id=str(current_user.id),
+        )
+        log.info("get_ta_for_download_started")
+
+        # Validate request exists
+        request = await self.request_repo.get_by_id(request_id)
+        if not request:
+            log.warning("get_ta_for_download_request_not_found")
+            raise RequestNotFoundError()
+
+        # Check authorization: user must be creator or have APPROVER/ADMIN role
+        user_roles = [role.name for role in current_user.roles]
+        is_creator = request.created_by == current_user.id
+        is_authorized = (
+            is_creator
+            or UserRoleEnum.APPROVER.value in user_roles
+            or UserRoleEnum.ADMIN.value in user_roles
+            or current_user.is_superuser
+        )
+
+        if not is_authorized:
+            log.warning("get_ta_for_download_unauthorized")
+            raise InsufficientPermissionsError(
+                "You don't have permission to download this TA"
+            )
+
+        # Get TA revision by version
+        ta_revision = await self.ta_revision_repo.get_by_version(request_id, version)
+        if not ta_revision:
+            log.warning("get_ta_for_download_revision_not_found")
+            raise TARevisionNotFoundError()
+
+        log.info(
+            "get_ta_for_download_completed",
+            revision_id=str(ta_revision.id),
+        )
+        return ta_revision
+
+    async def get_revision_by_id(
+        self,
+        request_id: UUID,
+        revision_id: UUID,
+        current_user: User,
+    ) -> TARevision:
+        """
+        Get TA revision by ID with authorization check.
+
+        Args:
+            request_id: Parent request ID
+            revision_id: TA revision ID
+            current_user: Current user
+
+        Returns:
+            TARevision object
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            InsufficientPermissionsError: If user doesn't have access
+            TARevisionNotFoundError: If TA revision not found
+        """
+        log = logger.bind(
+            request_id=str(request_id),
+            revision_id=str(revision_id),
+            user_id=str(current_user.id),
+        )
+        log.info("get_revision_by_id_started")
+
+        # Validate request exists
+        request = await self.request_repo.get_by_id(request_id)
+        if not request:
+            log.warning("get_revision_by_id_request_not_found")
+            raise RequestNotFoundError()
+
+        # Check authorization
+        user_roles = [role.name for role in current_user.roles]
+        is_creator = request.created_by == current_user.id
+        is_authorized = (
+            is_creator
+            or UserRoleEnum.APPROVER.value in user_roles
+            or UserRoleEnum.ADMIN.value in user_roles
+            or current_user.is_superuser
+        )
+
+        if not is_authorized:
+            log.warning("get_revision_by_id_unauthorized")
+            raise InsufficientPermissionsError(
+                "You don't have permission to access this TA revision"
+            )
+
+        # Get TA revision by ID
+        ta_revision = await self.ta_revision_repo.get_by_id(revision_id)
+        if not ta_revision or ta_revision.request_id != request_id:
+            log.warning("get_revision_by_id_revision_not_found")
+            raise TARevisionNotFoundError()
+
+        log.info("get_revision_by_id_completed")
+        return ta_revision
+
+    async def trigger_revalidation(
+        self,
+        request_id: UUID,
+        revision_id: UUID,
+        current_user: User,
+    ) -> ValidationRun:
+        """
+        Trigger re-validation for existing TA revision.
+
+        Args:
+            request_id: Parent request ID
+            revision_id: TA revision ID to re-validate
+            current_user: User triggering re-validation
+
+        Returns:
+            Created ValidationRun
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            TARevisionNotFoundError: If TA revision not found
+            InsufficientPermissionsError: If user doesn't have access
+            InvalidRequestStateError: If request state doesn't allow re-validation
+        """
+        log = logger.bind(
+            request_id=str(request_id),
+            revision_id=str(revision_id),
+            user_id=str(current_user.id),
+        )
+        log.info("trigger_revalidation_started")
+
+        # Validate request exists
+        request = await self.request_repo.get_by_id(request_id)
+        if not request:
+            log.warning("trigger_revalidation_request_not_found")
+            raise RequestNotFoundError()
+
+        # Check authorization (APPROVER or ADMIN role)
+        user_roles = [role.name for role in current_user.roles]
+        is_authorized = (
+            UserRoleEnum.APPROVER.value in user_roles
+            or UserRoleEnum.ADMIN.value in user_roles
+            or current_user.is_superuser
+        )
+        if not is_authorized:
+            log.warning("trigger_revalidation_unauthorized")
+            raise InsufficientPermissionsError(
+                "Re-validation requires APPROVER or ADMIN role"
+            )
+
+        # Validate request state allows re-validation
+        allowed_states = {
+            RequestStatus.VALIDATING,
+            RequestStatus.COMPLETED,
+            RequestStatus.FAILED,
         }
+        if request.status not in allowed_states:
+            log.warning(
+                "trigger_revalidation_invalid_state",
+                status=request.status.value
+            )
+            raise InvalidRequestStateError(
+                f"Cannot trigger re-validation in {request.status.value} state"
+            )
 
-        # Check required directories
-        required_dirs = ["default", "metadata"]
-        for dir_name in required_dirs:
-            dir_path = os.path.join(ta_dir, dir_name)
-            if not os.path.isdir(dir_path):
-                results["errors"].append(f"Missing required directory: {dir_name}")
-                results["valid"] = False
+        # Validate TA revision exists
+        ta_revision = await self.ta_revision_repo.get_by_id(revision_id)
+        if not ta_revision or ta_revision.request_id != request_id:
+            log.warning("trigger_revalidation_revision_not_found")
+            raise TARevisionNotFoundError()
 
-        # Check for config files
-        config_files = [
-            ("default/app.conf", True),
-            ("default/props.conf", False),
-            ("default/transforms.conf", False),
-            ("default/inputs.conf", False),
-            ("metadata/default.meta", True),
-        ]
+        # Create new ValidationRun with QUEUED status
+        validation_run = await self.validation_run_repo.create(
+            request_id=request_id,
+            ta_revision_id=revision_id,
+            status=ValidationStatus.QUEUED,
+        )
 
-        for file_path, required in config_files:
-            full_path = os.path.join(ta_dir, file_path)
-            if os.path.isfile(full_path):
-                results["files_found"].append(file_path)
-            elif required:
-                results["errors"].append(f"Missing required file: {file_path}")
-                results["valid"] = False
+        # Update request status to VALIDATING
+        await self.request_repo.update_status(request_id, RequestStatus.VALIDATING)
 
-        # Validate conf file syntax
-        for conf_file in results["files_found"]:
-            if conf_file.endswith(".conf"):
-                file_path = os.path.join(ta_dir, conf_file)
-                syntax_errors = self._validate_conf_syntax(file_path)
-                if syntax_errors:
-                    results["warnings"].extend(syntax_errors)
+        # Enqueue Celery validation task
+        # Using local import to avoid circular dependencies
+        from backend.tasks.validation import validate_ta_task
+        validate_ta_task.delay(str(validation_run.id))
 
-        return results
+        log.info(
+            "trigger_revalidation_completed",
+            validation_run_id=str(validation_run.id),
+            validation_task_enqueued=True,
+        )
 
-    def _validate_conf_syntax(self, file_path: str) -> List[str]:
+        return validation_run
+
+    async def get_revisions(
+        self,
+        request_id: UUID,
+        current_user: User,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> Tuple[list, int]:
         """
-        Basic syntax validation for .conf files.
+        Get all TA revisions for a request with validation status.
 
         Args:
-            file_path: Path to conf file
+            request_id: Parent request ID
+            current_user: Current user
+            skip: Number of records to skip
+            limit: Maximum number of records to return
 
         Returns:
-            List of syntax errors/warnings
+            Tuple of (revisions list, total count)
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            InsufficientPermissionsError: If user doesn't have access
         """
-        errors = []
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+        log = logger.bind(
+            request_id=str(request_id),
+            user_id=str(current_user.id),
+        )
+        log.info("get_revisions_started")
 
-            in_stanza = False
-            for line_num, line in enumerate(lines, 1):
-                line = line.strip()
+        # Validate request exists
+        request = await self.request_repo.get_by_id(request_id)
+        if not request:
+            log.warning("get_revisions_request_not_found")
+            raise RequestNotFoundError()
 
-                # Skip comments and empty lines
-                if not line or line.startswith("#"):
-                    continue
+        # Check authorization
+        user_roles = [role.name for role in current_user.roles]
+        is_creator = request.created_by == current_user.id
+        is_authorized = (
+            is_creator
+            or UserRoleEnum.APPROVER.value in user_roles
+            or UserRoleEnum.ADMIN.value in user_roles
+            or current_user.is_superuser
+        )
 
-                # Check stanza header
-                if line.startswith("["):
-                    if not line.endswith("]"):
-                        errors.append(
-                            f"{file_path}:{line_num}: Unclosed stanza bracket"
-                        )
-                    in_stanza = True
-                    continue
+        if not is_authorized:
+            log.warning("get_revisions_unauthorized")
+            raise InsufficientPermissionsError(
+                "You don't have permission to view TA revisions"
+            )
 
-                # Check key-value pairs
-                if "=" not in line and in_stanza:
-                    # Could be a continuation line, but flag as warning
-                    if not line.startswith(" ") and not line.startswith("\t"):
-                        errors.append(
-                            f"{file_path}:{line_num}: Line doesn't contain '=' (possible syntax error)"
-                        )
+        # Get revision history with validation runs eagerly loaded
+        revisions = await self.ta_revision_repo.get_revision_history(request_id)
 
-        except Exception as e:
-            errors.append(f"{file_path}: Failed to read file: {e}")
+        # Apply pagination
+        total = len(revisions)
+        revisions = revisions[skip:skip + limit]
 
-        return errors
+        # Compute latest validation status for each revision
+        for revision in revisions:
+            if revision.validation_runs:
+                # Sort by created_at desc and get first
+                latest_run = max(
+                    revision.validation_runs,
+                    key=lambda r: r.created_at
+                )
+                revision.latest_validation_status = latest_run.status
+            else:
+                revision.latest_validation_status = None
+
+        log.info("get_revisions_completed", count=len(revisions), total=total)
+        return revisions, total
+
+    async def get_revision_detail(
+        self,
+        request_id: UUID,
+        version: int,
+        current_user: User,
+    ) -> TARevision:
+        """
+        Get detailed TA revision with validation runs.
+
+        Args:
+            request_id: Parent request ID
+            version: TA version number
+            current_user: Current user
+
+        Returns:
+            TARevision with validation_runs loaded
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            TARevisionNotFoundError: If revision not found
+            InsufficientPermissionsError: If user doesn't have access
+        """
+        log = logger.bind(
+            request_id=str(request_id),
+            version=version,
+            user_id=str(current_user.id),
+        )
+        log.info("get_revision_detail_started")
+
+        # Get basic TA revision first (handles auth)
+        ta_revision = await self.get_ta_for_download(request_id, version, current_user)
+
+        # Get revision with validation runs eagerly loaded
+        ta_revision_with_runs = await self.ta_revision_repo.get_with_validations(
+            ta_revision.id
+        )
+
+        if ta_revision_with_runs and ta_revision_with_runs.validation_runs:
+            latest_run = max(
+                ta_revision_with_runs.validation_runs,
+                key=lambda r: r.created_at
+            )
+            ta_revision_with_runs.latest_validation_status = latest_run.status
+        else:
+            if ta_revision_with_runs:
+                ta_revision_with_runs.latest_validation_status = None
+
+        log.info("get_revision_detail_completed")
+        return ta_revision_with_runs or ta_revision
+
+    async def get_validation_run_for_request(
+        self,
+        request_id: UUID,
+        validation_run_id: UUID,
+        current_user: User,
+    ) -> "ValidationRun":
+        """
+        Get validation run by ID with request access verification.
+
+        Args:
+            request_id: Parent request ID for access check
+            validation_run_id: Validation run ID to fetch
+            current_user: Current user for authorization
+
+        Returns:
+            ValidationRun object
+
+        Raises:
+            RequestNotFoundError: If request doesn't exist
+            InsufficientPermissionsError: If user doesn't have access
+            ValidationRunNotFoundError: If validation run not found or doesn't belong to request
+        """
+        from backend.core.exceptions import ValidationRunNotFoundError
+
+        log = logger.bind(
+            request_id=str(request_id),
+            validation_run_id=str(validation_run_id),
+            user_id=str(current_user.id),
+        )
+        log.info("get_validation_run_for_request_started")
+
+        # Validate request exists and user has access
+        request = await self.request_repo.get_by_id(request_id)
+        if not request:
+            log.warning("get_validation_run_for_request_request_not_found")
+            raise RequestNotFoundError()
+
+        # Check authorization
+        user_roles = [role.name for role in current_user.roles]
+        is_creator = request.created_by == current_user.id
+        is_authorized = (
+            is_creator
+            or UserRoleEnum.APPROVER.value in user_roles
+            or UserRoleEnum.ADMIN.value in user_roles
+            or current_user.is_superuser
+        )
+
+        if not is_authorized:
+            log.warning("get_validation_run_for_request_unauthorized")
+            raise InsufficientPermissionsError(
+                "You don't have permission to access this validation run"
+            )
+
+        # Fetch validation run directly by ID
+        validation_run = await self.validation_run_repo.get_by_id(validation_run_id)
+        if not validation_run or validation_run.request_id != request_id:
+            log.warning("get_validation_run_for_request_not_found")
+            raise ValidationRunNotFoundError()
+
+        log.info("get_validation_run_for_request_completed")
+        return validation_run
+
+    def _validate_file_extension(self, filename: Optional[str]) -> None:
+        """
+        Validate file extension is allowed for TA uploads.
+
+        Args:
+            filename: Original filename
+
+        Raises:
+            InvalidTAFileError: If file extension not allowed
+        """
+        if not filename:
+            raise InvalidTAFileError()
+
+        filename_lower = filename.lower()
+        if not any(filename_lower.endswith(ext) for ext in self.ALLOWED_EXTENSIONS):
+            raise InvalidTAFileError(
+                f"File extension not allowed. Allowed: {', '.join(self.ALLOWED_EXTENSIONS)}"
+            )

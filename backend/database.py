@@ -5,7 +5,8 @@ This module provides the database connection, session factory, and utility
 functions for database initialization and health checks.
 """
 import os
-from typing import AsyncGenerator
+from contextlib import contextmanager
+from typing import AsyncGenerator, Generator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -13,13 +14,16 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.models import Base
 
 
 # Database configuration from environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/splunk_ta_generator")
+# Synchronous URL for Celery tasks (replace asyncpg with psycopg2)
+SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg", "+psycopg2").replace("postgresql+psycopg2", "postgresql")
 DATABASE_POOL_SIZE = int(os.getenv("DATABASE_POOL_SIZE", "10"))
 DATABASE_MAX_OVERFLOW = int(os.getenv("DATABASE_MAX_OVERFLOW", "20"))
 DATABASE_ECHO = os.getenv("DATABASE_ECHO", "false").lower() == "true"
@@ -108,51 +112,41 @@ async def dispose_engine() -> None:
     await engine.dispose()
 
 
-class AsyncSessionContextManager:
+# Synchronous engine for Celery tasks
+# Celery tasks run in a separate process and require synchronous database access
+sync_engine = create_engine(
+    SYNC_DATABASE_URL,
+    echo=DATABASE_ECHO,
+    pool_size=DATABASE_POOL_SIZE,
+    max_overflow=DATABASE_MAX_OVERFLOW,
+    pool_pre_ping=True,
+)
+
+# Synchronous session factory
+sync_session_factory = sessionmaker(
+    bind=sync_engine,
+    class_=Session,
+    expire_on_commit=False,
+    autoflush=False,
+    autocommit=False,
+)
+
+
+@contextmanager
+def get_sync_session() -> Generator[Session, None, None]:
     """
-    Async context manager for database sessions in Celery tasks.
+    Context manager for synchronous database sessions.
 
-    This provides a clean way to manage database sessions outside of
-    FastAPI's request lifecycle, particularly for background tasks.
+    Used by Celery tasks which run synchronously in separate worker processes.
 
-    Usage:
-        async with get_async_session_for_task() as session:
-            repo = RequestRepository(session)
-            request = await repo.get_by_id(request_id)
-            # ... do work ...
-            await session.commit()
+    Example:
+        with get_sync_session() as session:
+            repo = SomeRepository(session)
+            result = repo.get_something()
+            session.commit()
     """
-
-    def __init__(self):
-        self.session = None
-
-    async def __aenter__(self) -> AsyncSession:
-        self.session = async_session_factory()
-        return self.session
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            if exc_type is not None:
-                await self.session.rollback()
-            await self.session.close()
-        return False  # Don't suppress exceptions
-
-
-def get_async_session_for_task() -> AsyncSessionContextManager:
-    """
-    Get an async session context manager for Celery tasks.
-
-    This function returns a context manager that creates a new AsyncSession
-    and ensures proper cleanup even if the task fails.
-
-    Usage:
-        async with get_async_session_for_task() as session:
-            repo = RequestRepository(session)
-            request = await repo.get_by_id(request_id)
-            # ... do work ...
-            await session.commit()
-
-    Returns:
-        AsyncSessionContextManager that yields AsyncSession
-    """
-    return AsyncSessionContextManager()
+    session = sync_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()

@@ -204,3 +204,65 @@ class ValidationRunRepository(BaseRepository[ValidationRun]):
             ).order_by(ValidationRun.created_at.desc())
         )
         return list(result.scalars().all())
+
+    # Synchronous methods for Celery tasks
+    # These methods are used by background workers that require synchronous database access
+
+    def get_by_id_sync(self, validation_id: UUID) -> Optional[ValidationRun]:
+        """Synchronous version of get_by_id for Celery tasks."""
+        result = self.session.execute(
+            select(ValidationRun).where(ValidationRun.id == validation_id)
+        )
+        return result.scalar_one_or_none()
+
+    def update_status_sync(
+        self, validation_id: UUID, status: ValidationStatus
+    ) -> Optional[ValidationRun]:
+        """Synchronous version of update_status for Celery tasks."""
+        self.session.execute(
+            update(ValidationRun)
+            .where(ValidationRun.id == validation_id)
+            .values(status=status, updated_at=datetime.utcnow())
+        )
+        self.session.flush()
+        return self.get_by_id_sync(validation_id)
+
+    def complete_validation_sync(
+        self,
+        validation_id: UUID,
+        status: ValidationStatus,
+        results: Dict[str, Any],
+        debug_bundle_key: Optional[str] = None,
+        error_message: Optional[str] = None
+    ) -> Optional[ValidationRun]:
+        """Synchronous version of complete_validation for Celery tasks."""
+        validation = self.get_by_id_sync(validation_id)
+        if not validation:
+            return None
+
+        completed_at = datetime.utcnow()
+        duration_seconds = None
+        if validation.started_at:
+            duration_seconds = int((completed_at - validation.started_at).total_seconds())
+
+        update_data = {
+            "status": status,
+            "completed_at": completed_at,
+            "results_json": results,
+            "duration_seconds": duration_seconds,
+            "updated_at": datetime.utcnow()
+        }
+
+        if debug_bundle_key:
+            update_data["debug_bundle_key"] = debug_bundle_key
+
+        if error_message:
+            update_data["error_message"] = error_message
+
+        self.session.execute(
+            update(ValidationRun)
+            .where(ValidationRun.id == validation_id)
+            .values(**update_data)
+        )
+        self.session.flush()
+        return self.get_by_id_sync(validation_id)
