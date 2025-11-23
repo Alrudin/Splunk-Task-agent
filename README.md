@@ -186,6 +186,93 @@ Splunk-Task-agent/
 - **Default credentials**: minioadmin/minioadmin (change in production)
 - **Buckets**: log-samples, ta-artifacts, debug-bundles
 
+## Background Task Processing
+
+The system uses Celery with Redis for asynchronous task processing. Background tasks handle long-running operations like TA generation and validation without blocking API responses.
+
+### Task Architecture
+
+- **Broker**: Redis (message queue for task distribution)
+- **Result Backend**: Redis (stores task results and status)
+- **Worker**: Celery worker processes that execute tasks
+
+### Task Queues
+
+| Queue | Purpose |
+|-------|---------|
+| `default` | General tasks |
+| `ta_generation` | TA generation tasks (triggered after approval) |
+| `validation` | Splunk validation tasks |
+
+### Starting the Celery Worker
+
+**Using Docker Compose** (recommended):
+
+```bash
+# Start all services including Celery worker
+docker-compose up -d
+
+# Or start only the worker
+docker-compose up -d celery-worker
+```
+
+**Using the shell script** (local development):
+
+```bash
+# Make sure you're in the project root with venv activated
+./backend/scripts/start_celery_worker.sh
+```
+
+**Manual command**:
+
+```bash
+cd backend
+celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=4 --queues=default,ta_generation,validation
+```
+
+### Monitoring with Flower
+
+Flower provides a web UI for monitoring Celery tasks:
+
+```bash
+# Start with monitoring profile
+docker-compose --profile monitoring up -d
+
+# Or manually
+celery -A backend.tasks.celery_app flower --port=5555
+```
+
+Access Flower at: <http://localhost:5555>
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL for message broker |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/1` | Redis URL for results |
+| `CELERY_TASK_TIME_LIMIT` | `3600` | Hard timeout in seconds |
+| `CELERY_WORKER_CONCURRENCY` | `4` | Number of worker processes |
+| `MAX_PARALLEL_VALIDATIONS` | `3` | Max concurrent Splunk validations |
+
+### Troubleshooting
+
+**Worker not processing tasks:**
+
+1. Check Redis is running: `docker-compose ps redis`
+2. Check worker logs: `docker-compose logs celery-worker`
+3. Verify connection: `redis-cli ping`
+
+**Tasks stuck in PENDING:**
+
+1. Ensure worker is running and connected to correct broker
+2. Check task queue names match: `celery -A backend.tasks.celery_app inspect active_queues`
+
+**Task failures:**
+
+1. Check Flower UI for error details
+2. Review worker logs for stack traces
+3. Tasks auto-retry up to 3 times with exponential backoff
+
 ## Development Workflow
 
 ### Running Tests

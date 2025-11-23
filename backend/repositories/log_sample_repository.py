@@ -126,3 +126,33 @@ class LogSampleRepository(BaseRepository[LogSample]):
                 stats[request_id] = {"count": 0, "total_size": 0}
 
         return stats
+
+    async def get_sample_preview(self, request_id: UUID) -> Optional[str]:
+        """
+        Get concatenated sample previews for a request.
+
+        Retrieves the sample_preview field from all active log samples
+        associated with a request and concatenates them with separators.
+
+        Args:
+            request_id: UUID of the request
+
+        Returns:
+            Concatenated preview string or None if no previews available
+        """
+        samples = await self.get_active_samples(request_id)
+        if not samples:
+            return None
+
+        previews = []
+        for sample in samples:
+            # Check if sample has a preview field
+            preview = getattr(sample, "sample_preview", None)
+            if preview:
+                header = f"### {sample.original_filename or 'Sample'}"
+                previews.append(f"{header}\n{preview}")
+
+        if not previews:
+            return None
+
+        return "\n\n---\n\n".join(previews)
