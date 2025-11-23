@@ -27,7 +27,7 @@ from celery import Task
 
 from backend.tasks.celery_app import celery_app
 from backend.core.config import settings
-from backend.database import async_session_factory
+from backend.database import get_async_session_for_task
 from backend.models.enums import RequestStatus, AuditAction, TARevisionType
 from backend.models.ta_revision import TARevision
 from backend.repositories.request_repository import RequestRepository
@@ -130,7 +130,7 @@ async def _generate_ta_async(task: Task, request_id: str) -> Dict[str, Any]:
 
     request_uuid = UUID(request_id)
 
-    async with async_session_factory() as session:
+    async with get_async_session_for_task() as session:
         try:
             # Initialize repositories
             request_repo = RequestRepository(session)
@@ -176,9 +176,13 @@ async def _generate_ta_async(task: Task, request_id: str) -> Dict[str, Any]:
             )
 
             # Step 4: Get sample content preview
-            sample_preview = await _get_sample_preview(
-                log_samples, log_sample_repo, storage_client, task_log
-            )
+            sample_preview = await log_sample_repo.get_sample_preview(request_uuid)
+
+            # Fallback: if no preview in DB, download first 50 lines from storage
+            if not sample_preview:
+                sample_preview = await _download_sample_preview_fallback(
+                    log_samples, storage_client, task_log
+                )
 
             # Step 5: Retrieve RAG context from Pinecone
             task_log.info("retrieving_pinecone_context")
@@ -227,15 +231,28 @@ async def _generate_ta_async(task: Task, request_id: str) -> Dict[str, Any]:
             next_version = await ta_revision_repo.get_next_version(request_uuid)
             storage_key = f"requests/{request_id}/revisions/{ta_name}-v{next_version}.tgz"
 
-            await storage_client.upload_file(
-                bucket=settings.minio_bucket_tas,
-                key=storage_key,
-                file_path=package_path,
-            )
+            with open(package_path, "rb") as f:
+                upload_result = await storage_client.upload_file_async(
+                    file_obj=f,
+                    bucket=settings.minio_bucket_tas,
+                    key=storage_key,
+                    content_type="application/gzip",
+                )
+
+            # Verify checksum integrity
+            uploaded_checksum = upload_result.get("checksum")
+            if uploaded_checksum and uploaded_checksum != package_checksum:
+                task_log.warning(
+                    "checksum_mismatch",
+                    expected=package_checksum,
+                    actual=uploaded_checksum,
+                )
+
             task_log.info(
                 "ta_package_uploaded",
-                storage_key=storage_key,
-                checksum=package_checksum,
+                storage_key=upload_result.get("storage_key"),
+                checksum=uploaded_checksum,
+                size=upload_result.get("size"),
             )
 
             # Step 10: Create TARevision record
@@ -331,13 +348,16 @@ async def _generate_ta_async(task: Task, request_id: str) -> Dict[str, Any]:
             raise
 
 
-async def _get_sample_preview(
+async def _download_sample_preview_fallback(
     log_samples,
-    log_sample_repo: LogSampleRepository,
     storage_client: ObjectStorageClient,
     task_log,
 ) -> str:
-    """Get sample content preview from stored log samples."""
+    """
+    Fallback: download first 50 lines from storage for up to 3 samples.
+
+    Used when LogSampleRepository.get_sample_preview returns None/empty.
+    """
     if not log_samples:
         task_log.warning("no_log_samples_found")
         return "No log samples available."
@@ -345,25 +365,31 @@ async def _get_sample_preview(
     previews = []
     for sample in log_samples[:3]:  # Limit to first 3 samples
         try:
-            # First try to use sample_preview if available
-            if hasattr(sample, "sample_preview") and sample.sample_preview:
-                previews.append(f"### {sample.original_filename}\n{sample.sample_preview}")
+            if not sample.storage_key:
                 continue
 
-            # Otherwise download first 50 lines from storage
-            if sample.storage_key:
-                content = await storage_client.download_file_content(
-                    bucket=settings.minio_bucket_samples,
-                    key=sample.storage_key,
-                    max_bytes=50000,  # ~50KB limit
-                )
-                lines = content.decode("utf-8", errors="replace").split("\n")[:50]
-                preview = "\n".join(lines)
-                previews.append(f"### {sample.original_filename}\n{preview}")
+            # Download first ~50KB from storage
+            content_chunks = []
+            bytes_read = 0
+            max_bytes = 50000
+
+            async for chunk in storage_client.download_file_async(
+                bucket=settings.minio_bucket_samples,
+                key=sample.storage_key,
+            ):
+                content_chunks.append(chunk)
+                bytes_read += len(chunk)
+                if bytes_read >= max_bytes:
+                    break
+
+            content = b"".join(content_chunks)[:max_bytes]
+            lines = content.decode("utf-8", errors="replace").split("\n")[:50]
+            preview = "\n".join(lines)
+            previews.append(f"### {sample.original_filename or 'Sample'}\n{preview}")
 
         except Exception as e:
             task_log.warning(
-                "failed_to_get_sample_preview",
+                "failed_to_download_sample_preview",
                 sample_id=str(sample.id),
                 error=str(e),
             )
