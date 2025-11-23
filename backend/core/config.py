@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     max_sample_size_mb: int = Field(default=500, description="Maximum sample file size in MB")
     upload_chunk_size: int = Field(default=1048576, description="Upload chunk size in bytes (default 1MB)")
 
+    # TA Override Settings
+    max_ta_file_size_mb: int = Field(default=100, description="Maximum TA file size in MB for manual overrides")
+
     # Ollama LLM Settings
     ollama_host: str = Field(default="localhost", description="Ollama server host")
     ollama_port: int = Field(default=11434, description="Ollama server port")
@@ -125,6 +128,24 @@ class Settings(BaseSettings):
     ollama_max_tokens: int = Field(default=4096, description="Maximum tokens for LLM responses")
     ollama_use_ssl: bool = Field(default=False, description="Use HTTPS for Ollama connection")
 
+    # Splunk Sandbox Settings
+    splunk_image: str = Field(default="splunk/splunk:9.1.0", description="Splunk Docker image for validation")
+    splunk_startup_timeout: int = Field(default=300, description="Splunk container startup timeout in seconds")
+    splunk_admin_password: str = Field(default="admin123", description="Splunk admin password for sandbox")
+    splunk_management_port_range_start: int = Field(default=18089, description="Start of port range for Splunk management")
+    splunk_management_port_range_end: int = Field(default=18189, description="End of port range for Splunk management")
+    docker_network: str = Field(default="splunk-ta-network", description="Docker network for Splunk containers")
+    splunk_host: str = Field(default="localhost", description="Host address for Splunk REST API (use host.docker.internal in containers)")
+    splunk_use_ssl: bool = Field(default=False, description="Use HTTPS for Splunk REST API connections")
+    splunk_verify_ssl: bool = Field(default=False, description="Verify SSL certificates for Splunk REST API")
+
+    # Validation Settings
+    max_parallel_validations: int = Field(default=3, description="Maximum concurrent validation runs")
+    validation_timeout: int = Field(default=1800, description="Validation timeout in seconds (30 minutes)")
+    validation_retry_delay: int = Field(default=60, description="Delay before retrying queued validation (seconds)")
+    validation_index_name: str = Field(default="ta_validation_test", description="Index name for validation tests")
+    validation_field_coverage_threshold: float = Field(default=0.7, description="Minimum field coverage for PASSED (0.0-1.0)")
+
     # Web Browsing Control Settings
     allowed_web_domains: str = Field(
         default="splunk.com,splunkbase.splunk.com,github.com",
@@ -133,6 +154,32 @@ class Settings(BaseSettings):
     blocked_web_domains: str = Field(
         default="",
         description="Comma-separated list of blocked domains (takes precedence over allowed)"
+    )
+
+    # Celery Task Queue Settings
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis URL for Celery message broker"
+    )
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/1",
+        description="Redis URL for Celery result backend"
+    )
+    celery_task_time_limit: int = Field(
+        default=3600,
+        description="Hard time limit for tasks in seconds (default 1 hour)"
+    )
+    celery_task_soft_time_limit: int = Field(
+        default=3300,
+        description="Soft time limit for tasks in seconds (default 55 minutes)"
+    )
+    celery_worker_concurrency: int = Field(
+        default=4,
+        description="Number of concurrent worker processes"
+    )
+    max_parallel_validations: int = Field(
+        default=3,
+        description="Maximum concurrent Splunk validation runs"
     )
 
     @field_validator("jwt_secret_key")
@@ -191,6 +238,22 @@ class Settings(BaseSettings):
         """Validate Ollama max tokens is positive."""
         if v <= 0:
             raise ValueError("OLLAMA_MAX_TOKENS must be positive")
+        return v
+
+    @field_validator("validation_field_coverage_threshold")
+    @classmethod
+    def validate_coverage_threshold(cls, v: float) -> float:
+        """Validate field coverage threshold is between 0 and 1."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("VALIDATION_FIELD_COVERAGE_THRESHOLD must be between 0.0 and 1.0")
+        return v
+
+    @field_validator("max_parallel_validations")
+    @classmethod
+    def validate_max_parallel_validations(cls, v: int) -> int:
+        """Validate max parallel validations is positive."""
+        if v <= 0:
+            raise ValueError("MAX_PARALLEL_VALIDATIONS must be positive")
         return v
 
     @property

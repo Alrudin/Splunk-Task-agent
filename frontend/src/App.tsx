@@ -150,6 +150,21 @@ function App() {
               }
             />
             <Route
+<<<<<<< HEAD
+              path="/admin/knowledge"
+              element={
+                <ProtectedRoute requiredAnyRole={['ADMIN', 'KNOWLEDGE_MANAGER']}>
+                  <KnowledgeUpload />
+=======
+              path="/requests/:requestId/ta-override"
+              element={
+                <ProtectedRoute requiredAnyRole={['APPROVER', 'ADMIN']}>
+                  <TAOverride />
+>>>>>>> origin/main
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/*"
               element={
                 <ProtectedRoute requiredRole="ADMIN">

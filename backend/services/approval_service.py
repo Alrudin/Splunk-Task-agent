@@ -2,7 +2,8 @@
 Approval service for managing approval workflow operations.
 
 This service orchestrates approve/reject logic, validates state transitions,
-and coordinates with repositories for audit logging.
+and coordinates with repositories for audit logging. Upon approval, it
+enqueues the TA generation background task.
 """
 
 import structlog
@@ -19,6 +20,7 @@ from backend.core.exceptions import (
     InvalidRequestStateError,
     InsufficientPermissionsError,
 )
+from backend.tasks.generate_ta_task import generate_ta
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +233,24 @@ class ApprovalService:
             approver_id=str(approver_user.id),
             approver_username=approver_user.username,
         )
+
+        # Enqueue TA generation background task
+        try:
+            task_result = generate_ta.delay(request_id=str(request_id))
+            logger.info(
+                "TA generation task enqueued",
+                request_id=str(request_id),
+                task_id=task_result.id,
+                approver_id=str(approver_user.id),
+            )
+        except Exception as e:
+            # Log error but don't fail the approval - task can be retried manually
+            logger.error(
+                "Failed to enqueue TA generation task",
+                request_id=str(request_id),
+                error=str(e),
+                approver_id=str(approver_user.id),
+            )
 
         return updated_request
 
