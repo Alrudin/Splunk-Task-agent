@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     minio_bucket_samples: str = Field(default="log-samples", description="Bucket for log samples")
     minio_bucket_tas: str = Field(default="ta-artifacts", description="Bucket for TA artifacts")
     minio_bucket_debug: str = Field(default="debug-bundles", description="Bucket for debug bundles")
+    minio_bucket_knowledge: str = Field(default="knowledge-documents", description="Bucket for knowledge documents")
     minio_use_ssl: bool = Field(default=False, description="Use SSL for MinIO connections")
     minio_region: str = Field(default="us-east-1", description="MinIO region")
 

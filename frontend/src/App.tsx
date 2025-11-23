@@ -12,6 +12,7 @@ import Register from './pages/Register';
 import NewRequest from './pages/NewRequest';
 import ApproverDashboard from './pages/ApproverDashboard';
 import ApprovalDetail from './pages/ApprovalDetail';
+import KnowledgeUpload from './pages/Admin/KnowledgeUpload';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -137,6 +138,14 @@ function App() {
               element={
                 <ProtectedRoute requiredAnyRole={['APPROVER', 'ADMIN']}>
                   <ApprovalDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/knowledge"
+              element={
+                <ProtectedRoute requiredAnyRole={['ADMIN', 'KNOWLEDGE_MANAGER']}>
+                  <KnowledgeUpload />
                 </ProtectedRoute>
               }
             />

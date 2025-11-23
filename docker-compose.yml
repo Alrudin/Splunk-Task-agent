@@ -42,7 +42,7 @@ services:
       - splunk-ta-network
 
   # MinIO (S3-compatible Object Storage)
-  # Stores log samples, TA artifacts, and debug bundles
+  # Stores log samples, TA artifacts, debug bundles, and knowledge documents
   minio:
     image: minio/minio:latest
     container_name: splunk-ta-minio
@@ -61,6 +61,27 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - splunk-ta-network
+
+  # MinIO bucket initialization
+  # Creates required buckets on startup
+  minio-init:
+    image: minio/mc:latest
+    container_name: splunk-ta-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add minio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb minio/log-samples --ignore-existing;
+      /usr/bin/mc mb minio/ta-artifacts --ignore-existing;
+      /usr/bin/mc mb minio/debug-bundles --ignore-existing;
+      /usr/bin/mc mb minio/knowledge-documents --ignore-existing;
+      echo 'All buckets created successfully';
+      exit 0;
+      "
     networks:
       - splunk-ta-network
 
