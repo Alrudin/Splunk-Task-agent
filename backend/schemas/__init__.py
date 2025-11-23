@@ -20,11 +20,13 @@ from backend.schemas.request import (
     UploadSampleResponse,
 )
 
-# Audit schemas
-from backend.schemas.audit import (
-    AuditLogResponse,
-    AuditLogListResponse,
-    AuditLogQueryParams,
+# Approval schemas
+from backend.schemas.approval import (
+    ApproveRequestRequest,
+    RejectRequestRequest,
+    ApprovalResponse,
+    PendingApprovalListResponse,
+    ApprovalStatisticsResponse,
 )
 
 __all__ = [
@@ -42,8 +44,10 @@ __all__ = [
     "SampleResponse",
     "SampleListResponse",
     "UploadSampleResponse",
-    # Audit
-    "AuditLogResponse",
-    "AuditLogListResponse",
-    "AuditLogQueryParams",
+    # Approvals
+    "ApproveRequestRequest",
+    "RejectRequestRequest",
+    "ApprovalResponse",
+    "PendingApprovalListResponse",
+    "ApprovalStatisticsResponse",
 ]

@@ -20,8 +20,8 @@ from backend.core.exceptions import (
     InsufficientPermissionsError
 )
 from backend.integrations.object_storage_client import ObjectStorageClient
-from backend.services.request_service import RequestService
-from backend.services.audit_service import AuditService
+from backend.integrations.pinecone_client import PineconeClient
+from backend.integrations.ollama_client import OllamaClient
 
 
 def get_token_from_header(authorization: str = Header(None)) -> str:
@@ -193,14 +193,73 @@ get_current_knowledge_manager = Depends(require_role(UserRoleEnum.KNOWLEDGE_MANA
 
 
 # Service dependencies
+
+# Singleton instances
+_storage_client: ObjectStorageClient = None
+_pinecone_client: PineconeClient = None
+_ollama_client: OllamaClient = None
+
+
 def get_storage_client() -> ObjectStorageClient:
     """
-    Get object storage client instance.
+    Get object storage client singleton instance.
+
+    This function returns a singleton instance to avoid reinitializing
+    the storage client on every request.
 
     Returns:
         ObjectStorageClient instance configured with settings
     """
-    return ObjectStorageClient()
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = ObjectStorageClient()
+    return _storage_client
+
+
+def get_pinecone_client() -> PineconeClient:
+    """
+    Get Pinecone client singleton instance.
+
+    This function returns a singleton instance to avoid reinitializing
+    the embedding model on every request, which would be expensive.
+
+    Use with FastAPI's Depends() for dependency injection.
+
+    Example:
+        @app.get("/search")
+        async def search(pc: PineconeClient = Depends(get_pinecone_client)):
+            ...
+
+    Returns:
+        PineconeClient instance configured with settings
+    """
+    global _pinecone_client
+    if _pinecone_client is None:
+        _pinecone_client = PineconeClient()
+    return _pinecone_client
+
+
+def get_ollama_client() -> OllamaClient:
+    """
+    Get Ollama client singleton instance.
+
+    This function returns a singleton instance to avoid reinitializing
+    the OpenAI client on every request.
+
+    Use with FastAPI's Depends() for dependency injection.
+
+    Example:
+        @app.post("/generate")
+        async def generate(ollama: OllamaClient = Depends(get_ollama_client)):
+            ...
+
+    Returns:
+        OllamaClient instance configured with settings
+    """
+    global _ollama_client
+    if _ollama_client is None:
+        _ollama_client = OllamaClient()
+    return _ollama_client
 
 
 async def get_sample_repository(
@@ -240,20 +299,25 @@ async def get_request_service(
         storage_client=storage_client,
     )
 
-async def get_audit_service(
-    db: AsyncSession = Depends(get_db),
-) -> AuditService:
 
-    """
-    Get audit service instance with injected repository.
+async def get_approval_service(
+    db: AsyncSession = Depends(get_db),
+) -> "ApprovalService":
+    """Get approval service instance with injected dependencies.
 
     Args:
         db: Database session
 
     Returns:
-        AuditService instance configured for audit logging
+        ApprovalService instance with injected repositories
     """
+    from backend.services.approval_service import ApprovalService
     from backend.repositories.audit_log_repository import AuditLogRepository
 
+    request_repo = RequestRepository(db)
     audit_repo = AuditLogRepository(db)
-    return AuditService(repository=audit_repo)
+
+    return ApprovalService(
+        request_repository=request_repo,
+        audit_log_repository=audit_repo,
+    )

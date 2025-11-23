@@ -76,11 +76,63 @@ class Settings(BaseSettings):
     minio_use_ssl: bool = Field(default=False, description="Use SSL for MinIO connections")
     minio_region: str = Field(default="us-east-1", description="MinIO region")
 
+    # Pinecone API Settings
+    pinecone_api_key: str = Field(..., description="Pinecone API key for authentication")
+    pinecone_environment: Optional[str] = Field(
+        default=None,
+        description="Pinecone environment (legacy, for non-serverless indexes; use cloud/region for serverless)"
+    )
+    pinecone_cloud: str = Field(default="aws", description="Cloud provider for serverless Pinecone")
+    pinecone_region: str = Field(default="us-east-1", description="Region for serverless Pinecone deployment")
+
+    # Pinecone Index Configuration
+    pinecone_index_docs: str = Field(default="splunk-docs-index", description="Index name for Splunk documentation")
+    pinecone_index_tas: str = Field(default="ta-examples-index", description="Index name for historical TA examples")
+    pinecone_index_samples: str = Field(default="sample-logs-index", description="Index name for sample logs")
+    pinecone_dimension: int = Field(default=768, description="Embedding dimension (768 for all-mpnet-base-v2)")
+    pinecone_metric: str = Field(default="cosine", description="Distance metric for vector similarity")
+
+    # Embedding Model Settings
+    embedding_model_name: str = Field(
+        default="sentence-transformers/all-mpnet-base-v2",
+        description="Sentence transformer model for embedding generation"
+    )
+    embedding_batch_size: int = Field(default=32, description="Batch size for embedding encoding")
+    embedding_normalize: bool = Field(default=True, description="Normalize embeddings to unit vectors")
+
+    # Chunking Configuration
+    chunk_size_words: int = Field(default=300, description="Number of words per document chunk")
+    chunk_overlap_words: int = Field(default=50, description="Number of words to overlap between chunks")
+    max_chunks_per_document: int = Field(default=100, description="Maximum number of chunks per document")
+
+    # Query Settings
+    pinecone_top_k: int = Field(default=10, description="Default number of results to return from queries")
+    pinecone_query_timeout: int = Field(default=10, description="Query timeout in seconds")
+
     # Sample Retention & Upload Settings
     sample_retention_enabled: bool = Field(default=True, description="Enable sample retention policy")
     sample_retention_days: int = Field(default=90, description="Days to retain samples")
     max_sample_size_mb: int = Field(default=500, description="Maximum sample file size in MB")
     upload_chunk_size: int = Field(default=1048576, description="Upload chunk size in bytes (default 1MB)")
+
+    # Ollama LLM Settings
+    ollama_host: str = Field(default="localhost", description="Ollama server host")
+    ollama_port: int = Field(default=11434, description="Ollama server port")
+    ollama_model: str = Field(default="llama2", description="Ollama model name for TA generation")
+    ollama_timeout: int = Field(default=300, description="Ollama request timeout in seconds")
+    ollama_temperature: float = Field(default=0.7, description="LLM temperature for generation")
+    ollama_max_tokens: int = Field(default=4096, description="Maximum tokens for LLM responses")
+    ollama_use_ssl: bool = Field(default=False, description="Use HTTPS for Ollama connection")
+
+    # Web Browsing Control Settings
+    allowed_web_domains: str = Field(
+        default="splunk.com,splunkbase.splunk.com,github.com",
+        description="Comma-separated list of allowed domains for web browsing"
+    )
+    blocked_web_domains: str = Field(
+        default="",
+        description="Comma-separated list of blocked domains (takes precedence over allowed)"
+    )
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -116,6 +168,30 @@ class Settings(BaseSettings):
             raise ValueError("OIDC_CLIENT_ID is required when OIDC_ENABLED=true")
         return v
 
+    @field_validator("pinecone_api_key")
+    @classmethod
+    def validate_pinecone_api_key(cls, v: str) -> str:
+        """Validate Pinecone API key is not empty."""
+        if not v or v.strip() == "":
+            raise ValueError("PINECONE_API_KEY must be set to a valid API key")
+        return v
+
+    @field_validator("ollama_temperature")
+    @classmethod
+    def validate_ollama_temperature(cls, v: float) -> float:
+        """Validate Ollama temperature is in valid range."""
+        if not 0.0 <= v <= 2.0:
+            raise ValueError("OLLAMA_TEMPERATURE must be between 0.0 and 2.0")
+        return v
+
+    @field_validator("ollama_max_tokens")
+    @classmethod
+    def validate_ollama_max_tokens(cls, v: int) -> int:
+        """Validate Ollama max tokens is positive."""
+        if v <= 0:
+            raise ValueError("OLLAMA_MAX_TOKENS must be positive")
+        return v
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""
@@ -126,6 +202,39 @@ class Settings(BaseSettings):
         """Get API prefix path."""
         return f"/api/{self.api_version}"
 
+    @property
+    def ollama_base_url(self) -> str:
+        """Get Ollama base URL for OpenAI client."""
+        protocol = "https" if self.ollama_use_ssl else "http"
+        return f"{protocol}://{self.ollama_host}:{self.ollama_port}/v1"
+
+    @property
+    def allowed_domains_list(self) -> List[str]:
+        """Parse allowed domains from comma-separated string."""
+        if not self.allowed_web_domains:
+            return []
+        return [domain.strip().lower() for domain in self.allowed_web_domains.split(",") if domain.strip()]
+
+    @property
+    def blocked_domains_list(self) -> List[str]:
+        """Parse blocked domains from comma-separated string."""
+        if not self.blocked_web_domains:
+            return []
+        return [domain.strip().lower() for domain in self.blocked_web_domains.split(",") if domain.strip()]
+
 
 # Singleton settings instance
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """
+    Get the singleton settings instance.
+
+    This function provides a consistent way to access settings
+    and is useful for dependency injection in FastAPI.
+
+    Returns:
+        Settings instance loaded from environment
+    """
+    return settings
