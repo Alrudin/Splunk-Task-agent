@@ -3,7 +3,7 @@ FastAPI dependency functions for authentication and authorization.
 """
 from typing import Callable
 from uuid import UUID
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
@@ -276,10 +276,9 @@ async def get_sample_repository(
     """
     return LogSampleRepository(db)
 
-
 async def get_request_service(
     db: AsyncSession = Depends(get_db),
-) -> "RequestService":
+) -> RequestService:
     """
     Get request service instance with injected dependencies.
 
@@ -289,7 +288,6 @@ async def get_request_service(
     Returns:
         RequestService instance
     """
-    from backend.services.request_service import RequestService
 
     request_repo = RequestRepository(db)
     sample_repo = LogSampleRepository(db)

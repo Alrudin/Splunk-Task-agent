@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import structlog
 
 from backend.core.config import settings
+from backend.core.logging import configure_logging, get_logger
 from backend.core.exceptions import AppException, app_exception_handler
 from backend.api.auth import router as auth_router
 from backend.api.requests import router as requests_router
@@ -18,16 +19,10 @@ from backend.api.approvals import router as approvals_router
 from backend.database import check_db_connection, dispose_engine
 
 
-# Configure structlog
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer() if settings.log_format == "json" else structlog.dev.ConsoleRenderer()
-    ]
-)
+# Configure centralized logging
+configure_logging()
 
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
