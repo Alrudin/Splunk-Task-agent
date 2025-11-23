@@ -154,3 +154,67 @@ export function getStatusColorClass(status: string): string {
 
   return colorMap[status] || 'bg-gray-100 text-gray-800';
 }
+
+/**
+ * Format duration in seconds to human-readable format.
+ *
+ * @param seconds - Duration in seconds
+ * @returns Formatted duration string (e.g., "2m 30s", "1h 15m")
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) {
+    return '-';
+  }
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (minutes < 60) {
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  return remainingMinutes > 0
+    ? `${hours}h ${remainingMinutes}m`
+    : `${hours}h`;
+}
+
+/**
+ * Format validation status for display.
+ *
+ * @param status - Validation status enum value
+ * @returns Object with label and color class
+ */
+export function formatValidationStatus(status: string): { label: string; color: string } {
+  const statusMap: Record<string, { label: string; color: string }> = {
+    QUEUED: { label: 'Queued', color: 'bg-gray-100 text-gray-800' },
+    RUNNING: { label: 'Running', color: 'bg-yellow-100 text-yellow-800' },
+    PASSED: { label: 'Passed', color: 'bg-green-100 text-green-800' },
+    FAILED: { label: 'Failed', color: 'bg-red-100 text-red-800' },
+  };
+
+  return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-800' };
+}
+
+/**
+ * Format TA revision type for display.
+ *
+ * @param type - TA revision type enum value
+ * @returns Object with label and color class
+ */
+export function formatTARevisionType(type: string): { label: string; color: string } {
+  const typeMap: Record<string, { label: string; color: string }> = {
+    AUTO: { label: 'Auto-generated', color: 'bg-blue-100 text-blue-800' },
+    MANUAL: { label: 'Manual Override', color: 'bg-purple-100 text-purple-800' },
+  };
+
+  return typeMap[type] || { label: type, color: 'bg-gray-100 text-gray-800' };
+}
