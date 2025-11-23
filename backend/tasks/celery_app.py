@@ -1,76 +1,82 @@
 """
 Celery application configuration for background task processing.
 
-This module configures the Celery application with Redis as the message broker
-and result backend. Tasks are auto-discovered from the backend.tasks module.
-
-Usage:
-    Start worker: celery -A backend.tasks.celery_app worker --loglevel=info
-    Start beat: celery -A backend.tasks.celery_app beat --loglevel=info
+This module configures the Celery application with Redis as broker and backend,
+defines task routing, and sets up worker configuration.
 """
+import os
 
-import structlog
 from celery import Celery
 
-from backend.core.config import settings
+# Get Redis URL from environment
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 
-logger = structlog.get_logger(__name__)
-
-# Initialize Celery application
+# Create Celery application
 celery_app = Celery(
     "splunk_ta_generator",
-    broker=settings.celery_broker_url,
-    backend=settings.celery_result_backend,
+    broker=CELERY_BROKER_URL,
+    backend=CELERY_RESULT_BACKEND,
 )
 
 # Celery configuration
 celery_app.conf.update(
-    # Serialization settings
+    # Task settings
     task_serializer="json",
-    result_serializer="json",
     accept_content=["json"],
-
-    # Timezone settings
+    result_serializer="json",
     timezone="UTC",
     enable_utc=True,
 
-    # Task execution settings
-    task_time_limit=settings.celery_task_time_limit,
-    task_soft_time_limit=settings.celery_task_soft_time_limit,
-
-    # Reliability settings
-    task_acks_late=True,  # Acknowledge after task completion
-    task_reject_on_worker_lost=True,  # Reject task if worker dies
-    worker_prefetch_multiplier=1,  # Prevent task hoarding
-
-    # Result settings
-    result_expires=3600,  # Results expire after 1 hour
-    result_extended=True,  # Store additional task metadata
-
-    # Task routing
+    # Task routing - route tasks to specific queues
     task_routes={
-        "backend.tasks.generate_ta_task.generate_ta": {"queue": "ta_generation"},
-        "backend.tasks.validate_ta_task.validate_ta": {"queue": "validation"},
+        "generate_ta": {"queue": "ta_generation"},
+        "validate_ta": {"queue": "validation"},
     },
 
-    # Default queue
-    task_default_queue="default",
+    # Task time limits
+    task_time_limit=int(os.getenv("CELERY_TASK_TIME_LIMIT", 3600)),  # Hard limit (1 hour default)
+    task_soft_time_limit=int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 3300)),  # Soft limit (55 min)
 
     # Worker settings
-    worker_max_tasks_per_child=100,  # Restart worker after 100 tasks to prevent memory leaks
-    worker_disable_rate_limits=True,
+    worker_prefetch_multiplier=1,  # Fetch one task at a time for long-running tasks
+    worker_max_tasks_per_child=int(os.getenv("CELERY_WORKER_MAX_TASKS", 10)),  # Restart after 10 tasks
+    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", 4)),
 
-    # Logging
-    worker_hijack_root_logger=False,  # Don't hijack root logger (use structlog)
+    # Result settings
+    result_expires=86400,  # Results expire after 24 hours
+    result_extended=True,  # Store additional task metadata
+
+    # Task tracking
+    task_track_started=True,
+    task_send_sent_event=True,
+
+    # Beat scheduler (if using periodic tasks)
+    beat_scheduler="celery.beat:PersistentScheduler",
 )
 
-# Auto-discover tasks in the backend.tasks module
-celery_app.autodiscover_tasks(["backend.tasks"])
+# Define task queues
+celery_app.conf.task_queues = {
+    "default": {"exchange": "default", "routing_key": "default"},
+    "ta_generation": {"exchange": "ta_generation", "routing_key": "ta_generation"},
+    "validation": {"exchange": "validation", "routing_key": "validation"},
+}
 
-logger.info(
-    "celery_app_configured",
-    broker_url=settings.celery_broker_url,
-    result_backend=settings.celery_result_backend,
-    task_time_limit=settings.celery_task_time_limit,
-    worker_concurrency=settings.celery_worker_concurrency,
-)
+# Default queue for tasks without explicit routing
+celery_app.conf.task_default_queue = "default"
+
+
+# Import tasks to register them with Celery
+# Note: These imports must happen after celery_app is created to avoid circular imports
+def register_tasks():
+    """Register all task modules with Celery."""
+    # Import tasks here to register them
+    from backend.tasks import generate_ta_task  # noqa: F401
+    from backend.tasks import validate_ta_task  # noqa: F401
+
+
+# Auto-discover tasks when Celery starts
+@celery_app.on_after_configure.connect
+def setup_tasks(sender, **kwargs):
+    """Called after Celery is configured."""
+    register_tasks()

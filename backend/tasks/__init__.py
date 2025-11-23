@@ -1,12 +1,7 @@
 """
-Celery tasks module for background task processing.
+Celery tasks for asynchronous background processing.
 
-This module contains:
-- celery_app: Celery application configuration
-- generate_ta_task: TA generation background task
-- validate_ta_task: TA validation background task (future)
+This module contains task definitions for:
+- TA generation
+- TA validation
 """
-
-from backend.tasks.celery_app import celery_app
-
-__all__ = ["celery_app"]

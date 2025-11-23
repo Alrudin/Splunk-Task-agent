@@ -156,6 +156,33 @@ class ValidationRunRepository(BaseRepository[ValidationRun]):
         )
         return result.scalar()
 
+    async def get_active_count(self) -> int:
+        """Count validations with status=QUEUED or RUNNING (for concurrency control)."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(ValidationRun)
+            .where(ValidationRun.status.in_([
+                ValidationStatus.QUEUED,
+                ValidationStatus.RUNNING
+            ]))
+        )
+        return result.scalar()
+
+    async def set_container_id(
+        self, validation_id: UUID, container_id: str
+    ) -> Optional[ValidationRun]:
+        """Set splunk_container_id without changing status (for recording sandbox info)."""
+        await self.session.execute(
+            update(ValidationRun)
+            .where(ValidationRun.id == validation_id)
+            .values(
+                splunk_container_id=container_id,
+                updated_at=datetime.utcnow()
+            )
+        )
+        await self.session.flush()
+        return await self.get_by_id(validation_id)
+
     async def get_validation_statistics(self) -> Dict[str, int]:
         """Get counts by status for monitoring dashboard."""
         stats = {}

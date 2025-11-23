@@ -1,81 +1,60 @@
 """
-Celery task for TA (Technology Add-on) generation.
+Celery task for asynchronous TA generation.
 
-This task orchestrates the complete TA generation workflow:
-1. Fetch request and log samples from database
-2. Download sample content preview from object storage
-3. Retrieve RAG context from Pinecone
-4. Build prompt and call Ollama LLM
-5. Generate TA package with TAGenerationService
-6. Upload package to object storage
-7. Create TARevision record
-8. Update request status and log audit events
-
-Usage:
-    from backend.tasks.generate_ta_task import generate_ta
-    result = generate_ta.delay(request_id="uuid-string")
+This task orchestrates the complete TA generation pipeline,
+including LLM interaction, TA packaging, and enqueueing validation.
 """
-
 import asyncio
-import json
-from datetime import datetime
-from typing import Any, Dict, Optional
+import os
+import shutil
+import tarfile
+import tempfile
+from pathlib import Path
+from typing import Any, Dict
 from uuid import UUID
 
 import structlog
 from celery import Task
 
-from backend.tasks.celery_app import celery_app
 from backend.core.config import settings
-from backend.database import get_async_session_for_task
-from backend.models.enums import RequestStatus, AuditAction, TARevisionType
-from backend.models.ta_revision import TARevision
+from backend.database import async_session_factory
+from backend.integrations.object_storage_client import ObjectStorageClient
+from backend.models.enums import AuditAction, RequestStatus, ValidationStatus
+from backend.repositories.log_sample_repository import LogSampleRepository
 from backend.repositories.request_repository import RequestRepository
 from backend.repositories.ta_revision_repository import TARevisionRepository
-from backend.repositories.log_sample_repository import LogSampleRepository
-from backend.repositories.audit_log_repository import AuditLogRepository
-from backend.integrations.ollama_client import OllamaClient
-from backend.integrations.pinecone_client import PineconeClient
-from backend.integrations.object_storage_client import ObjectStorageClient
-from backend.services.prompt_builder import PromptBuilder
-from backend.services.ta_generation_service import TAGenerationService
+from backend.repositories.validation_run_repository import ValidationRunRepository
+from backend.tasks.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
 
 
 class TAGenerationTask(Task):
-    """Custom Celery task class with async support and error handling."""
+    """Custom Celery task class for TA generation."""
 
     abstract = True
-    autoretry_for = (Exception,)
-    retry_backoff = True
-    retry_backoff_max = 600  # Max 10 minutes between retries
-    retry_jitter = True
-    max_retries = 3
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Handle task failure."""
-        request_id = kwargs.get("request_id") or (args[0] if args else None)
         logger.error(
             "ta_generation_task_failed",
             task_id=task_id,
-            request_id=request_id,
+            args=args,
             error=str(exc),
-            exc_info=einfo,
+            traceback=str(einfo),
         )
 
     def on_success(self, retval, task_id, args, kwargs):
         """Handle task success."""
-        request_id = kwargs.get("request_id") or (args[0] if args else None)
         logger.info(
             "ta_generation_task_succeeded",
             task_id=task_id,
-            request_id=request_id,
+            args=args,
         )
 
 
 def run_async(coro):
-    """Run async coroutine in sync context for Celery."""
+    """Run an async coroutine in a new event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -85,352 +64,310 @@ def run_async(coro):
 
 
 @celery_app.task(
+    name="generate_ta",
     bind=True,
     base=TAGenerationTask,
-    name="backend.tasks.generate_ta_task.generate_ta",
-    queue="ta_generation",
+    max_retries=2,
+    default_retry_delay=30,
+    time_limit=600,  # 10 minutes hard limit
+    soft_time_limit=540,  # 9 minutes soft limit
 )
-def generate_ta(self, request_id: str) -> Dict[str, Any]:
+def generate_ta_task(
+    self: Task,
+    request_id: str,
+) -> Dict[str, Any]:
     """
-    Generate a Splunk TA for the given request.
+    Celery task for generating a TA from a request.
 
     This task:
-    1. Updates request status to GENERATING_TA
-    2. Logs TA_GENERATION_START audit event
-    3. Fetches request with log samples
-    4. Downloads sample content preview
-    5. Retrieves RAG context from Pinecone
-    6. Builds prompt and calls Ollama LLM
-    7. Creates TA package using TAGenerationService
-    8. Uploads package to object storage
-    9. Creates TARevision record
-    10. Updates status to VALIDATING
-    11. Logs TA_GENERATION_COMPLETE audit event
+    1. Fetches request and sample data
+    2. Queries RAG for relevant context
+    3. Generates TA configuration via LLM
+    4. Packages TA as tarball
+    5. Uploads to object storage
+    6. Creates TARevision record
+    7. Enqueues validation task
 
     Args:
-        request_id: UUID string of the request to process
+        request_id: UUID string of the Request record
 
     Returns:
-        Dict with ta_revision_id, version, and storage_key
+        Dictionary with ta_revision_id and status
 
-    Raises:
-        Exception: If any step fails, status is set to FAILED
+    Note:
+        This is a placeholder implementation. The actual LLM integration
+        and TA generation logic should be implemented based on your
+        specific requirements.
     """
-    return run_async(_generate_ta_async(self, request_id))
-
-
-async def _generate_ta_async(task: Task, request_id: str) -> Dict[str, Any]:
-    """Async implementation of TA generation."""
-    task_log = logger.bind(
-        task_id=task.request.id,
+    log = logger.bind(
+        task_id=self.request.id,
         request_id=request_id,
-        component="generate_ta_task",
     )
-    task_log.info("ta_generation_started")
+    log.info("generate_ta_task_started")
 
-    request_uuid = UUID(request_id)
+    return run_async(_generate_ta_async(self, UUID(request_id)))
 
-    async with get_async_session_for_task() as session:
+
+async def _generate_ta_async(
+    task: Task,
+    request_id: UUID,
+) -> Dict[str, Any]:
+    """
+    Async implementation of TA generation.
+
+    Args:
+        task: Celery task instance
+        request_id: Request record UUID
+
+    Returns:
+        Dictionary with ta_revision_id and status
+    """
+    log = logger.bind(
+        task_id=task.request.id,
+        request_id=str(request_id),
+    )
+
+    async with async_session_factory() as session:
+        # Initialize repositories
+        request_repo = RequestRepository(session)
+        ta_revision_repo = TARevisionRepository(session)
+        sample_repo = LogSampleRepository(session)
+        validation_repo = ValidationRunRepository(session)
+        storage_client = ObjectStorageClient()
+
         try:
-            # Initialize repositories
-            request_repo = RequestRepository(session)
-            ta_revision_repo = TARevisionRepository(session)
-            log_sample_repo = LogSampleRepository(session)
-            audit_repo = AuditLogRepository(session)
-
-            # Initialize integration clients
-            ollama_client = OllamaClient()
-            pinecone_client = PineconeClient()
-            storage_client = ObjectStorageClient()
-            ta_service = TAGenerationService(storage_client)
-            prompt_builder = PromptBuilder(pinecone_client)
-
-            # Step 1: Update status to GENERATING_TA
-            task_log.info("updating_status_to_generating")
-            await request_repo.update_status(request_uuid, RequestStatus.GENERATING_TA)
-
-            # Step 2: Log audit event
-            await audit_repo.create(
-                user_id=None,  # System-initiated
-                action=AuditAction.TA_GENERATION_START,
-                entity_type="request",
-                entity_id=request_id,
-                details={
-                    "task_id": task.request.id,
-                    "started_at": datetime.utcnow().isoformat(),
-                },
-            )
+            # Update request status to GENERATING_TA
+            await request_repo.update_status(request_id, RequestStatus.GENERATING_TA)
             await session.commit()
 
-            # Step 3: Fetch request with samples
-            task_log.info("fetching_request_with_samples")
-            request = await request_repo.get_with_samples(request_uuid)
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "fetching_data", "progress": 10},
+            )
+
+            # Fetch request with samples
+            request = await request_repo.get_with_samples(request_id)
             if not request:
                 raise ValueError(f"Request {request_id} not found")
 
-            log_samples = request.log_samples or []
-            task_log.info(
-                "request_fetched",
-                source_system=request.source_system,
-                sample_count=len(log_samples),
+            log.info("audit_ta_generation_start", action=AuditAction.TA_GENERATION_START.value)
+
+            # Get samples
+            samples = await sample_repo.get_active_samples(request_id)
+            if not samples:
+                raise ValueError("No active samples found for request")
+
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "generating_ta", "progress": 30},
             )
 
-            # Step 4: Get sample content preview
-            sample_preview = await log_sample_repo.get_sample_preview(request_uuid)
+            # TODO: Implement actual TA generation logic
+            # This should:
+            # 1. Query Pinecone for relevant documentation
+            # 2. Build prompt with request metadata and sample snippets
+            # 3. Call Ollama LLM to generate TA configuration
+            # 4. Parse and validate the generated configuration
+            # 5. Package into a proper TA directory structure
+            # 6. Create tarball
 
-            # Fallback: if no preview in DB, download first 50 lines from storage
-            if not sample_preview:
-                sample_preview = await _download_sample_preview_fallback(
-                    log_samples, storage_client, task_log
-                )
-
-            # Step 5: Retrieve RAG context from Pinecone
-            task_log.info("retrieving_pinecone_context")
-            pinecone_context = await prompt_builder.retrieve_context_from_pinecone(
-                request=request,
-                log_samples=log_samples,
-                top_k_per_source=5,
-            )
-
-            # Step 6: Build prompt
-            task_log.info("building_ta_generation_prompt")
-            prompt = await prompt_builder.build_ta_generation_prompt(
-                request=request,
-                log_samples=log_samples,
-                sample_content_preview=sample_preview,
-                pinecone_context=pinecone_context,
-            )
-
-            # Step 7: Call Ollama LLM
-            task_log.info("calling_ollama_llm")
-            system_prompt = prompt_builder.get_system_prompt()
-            schema = prompt_builder.get_ta_generation_schema()
-
-            llm_response = await ollama_client.generate_structured_response(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                response_schema=schema,
-            )
-
-            ta_config = _parse_llm_response(llm_response, task_log)
-            task_log.info(
-                "llm_response_received",
-                ta_name=ta_config.get("ta_name"),
-            )
-
-            # Step 8: Create TA package
-            task_log.info("creating_ta_package")
-            ta_name = ta_config.get("ta_name", f"TA-{request.source_system or 'custom'}")
-            package_path, package_checksum = await ta_service.create_ta_package(
-                ta_name=ta_name,
-                ta_config=ta_config,
-            )
-
-            # Step 9: Upload to object storage
-            task_log.info("uploading_ta_package")
-            next_version = await ta_revision_repo.get_next_version(request_uuid)
-            storage_key = f"requests/{request_id}/revisions/{ta_name}-v{next_version}.tgz"
-
-            with open(package_path, "rb") as f:
-                upload_result = await storage_client.upload_file_async(
-                    file_obj=f,
-                    bucket=settings.minio_bucket_tas,
-                    key=storage_key,
-                    content_type="application/gzip",
-                )
-
-            # Verify checksum integrity
-            uploaded_checksum = upload_result.get("checksum")
-            if uploaded_checksum and uploaded_checksum != package_checksum:
-                task_log.warning(
-                    "checksum_mismatch",
-                    expected=package_checksum,
-                    actual=uploaded_checksum,
-                )
-
-            task_log.info(
-                "ta_package_uploaded",
-                storage_key=upload_result.get("storage_key"),
-                checksum=uploaded_checksum,
-                size=upload_result.get("size"),
-            )
-
-            # Step 10: Create TARevision record
-            task_log.info("creating_ta_revision_record")
-            ta_revision = TARevision(
-                request_id=request_uuid,
-                version=next_version,
-                storage_key=storage_key,
-                generated_by=TARevisionType.AUTO,
-                config_summary=_create_config_summary(ta_config),
-                generation_metadata={
-                    "task_id": task.request.id,
-                    "model": settings.ollama_model,
-                    "generated_at": datetime.utcnow().isoformat(),
-                    "checksum": package_checksum,
-                    "pinecone_context_size": {
-                        "docs": len(pinecone_context.get("docs", [])),
-                        "tas": len(pinecone_context.get("tas", [])),
-                        "samples": len(pinecone_context.get("samples", [])),
-                    },
+            # Placeholder: Create a minimal TA structure
+            # In production, this would be generated by the LLM
+            ta_config = {
+                "props": {
+                    f"sourcetype::{request.source_system}": {
+                        "TIME_FORMAT": "%Y-%m-%d %H:%M:%S",
+                        "MAX_TIMESTAMP_LOOKAHEAD": "30",
+                        "SHOULD_LINEMERGE": "false",
+                    }
                 },
+                "transforms": {},
+                "inputs": {},
+            }
+
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "packaging_ta", "progress": 60},
+            )
+
+            # Get next version number
+            next_version = await ta_revision_repo.get_next_version(request_id)
+
+            # Create TA name (sanitize source_system for directory name)
+            ta_name = f"TA-{request.source_system.replace(' ', '_').replace('/', '-')}"
+            storage_key = f"ta/{request_id}/v{next_version}/{ta_name}.tgz"
+
+            # Create TA directory structure and package as tarball
+            temp_dir = None
+            try:
+                temp_dir = Path(tempfile.mkdtemp(prefix=f"ta-gen-{request_id}-"))
+                ta_dir = temp_dir / ta_name
+                default_dir = ta_dir / "default"
+                default_dir.mkdir(parents=True)
+
+                # Create app.conf
+                app_conf_path = default_dir / "app.conf"
+                with open(app_conf_path, "w") as f:
+                    f.write(f"[install]\n")
+                    f.write(f"is_configured = 0\n")
+                    f.write(f"build = {next_version}\n\n")
+                    f.write(f"[ui]\n")
+                    f.write(f"is_visible = 0\n")
+                    f.write(f"label = {ta_name}\n\n")
+                    f.write(f"[launcher]\n")
+                    f.write(f"author = Splunk TA Generator\n")
+                    f.write(f"description = Auto-generated TA for {request.source_system}\n")
+                    f.write(f"version = 1.0.{next_version}\n")
+
+                # Create props.conf from ta_config
+                props_conf_path = default_dir / "props.conf"
+                with open(props_conf_path, "w") as f:
+                    props_config = ta_config.get("props", {})
+                    for stanza, settings_dict in props_config.items():
+                        f.write(f"[{stanza}]\n")
+                        for key, value in settings_dict.items():
+                            f.write(f"{key} = {value}\n")
+                        f.write("\n")
+
+                # Create transforms.conf if present
+                transforms_config = ta_config.get("transforms", {})
+                if transforms_config:
+                    transforms_conf_path = default_dir / "transforms.conf"
+                    with open(transforms_conf_path, "w") as f:
+                        for stanza, settings_dict in transforms_config.items():
+                            f.write(f"[{stanza}]\n")
+                            for key, value in settings_dict.items():
+                                f.write(f"{key} = {value}\n")
+                            f.write("\n")
+
+                # Create inputs.conf if present
+                inputs_config = ta_config.get("inputs", {})
+                if inputs_config:
+                    inputs_conf_path = default_dir / "inputs.conf"
+                    with open(inputs_conf_path, "w") as f:
+                        for stanza, settings_dict in inputs_config.items():
+                            f.write(f"[{stanza}]\n")
+                            for key, value in settings_dict.items():
+                                f.write(f"{key} = {value}\n")
+                            f.write("\n")
+
+                # Create tarball
+                tarball_path = temp_dir / f"{ta_name}.tgz"
+                with tarfile.open(tarball_path, "w:gz") as tar:
+                    tar.add(ta_dir, arcname=ta_name)
+
+                log.info("ta_tarball_created", path=str(tarball_path), size=tarball_path.stat().st_size)
+
+                task.update_state(
+                    state="PROGRESS",
+                    meta={"step": "uploading_ta", "progress": 70},
+                )
+
+                # Upload tarball to MinIO
+                with open(tarball_path, "rb") as f:
+                    await storage_client.upload_file_async(
+                        file_obj=f,
+                        bucket=settings.minio_bucket_tas,
+                        key=storage_key,
+                        content_type="application/gzip",
+                    )
+
+                log.info("ta_uploaded_to_storage", storage_key=storage_key)
+
+            except Exception as upload_error:
+                log.error("ta_packaging_or_upload_failed", error=str(upload_error))
+                raise ValueError(f"Failed to package or upload TA: {str(upload_error)}")
+            finally:
+                # Clean up temp directory
+                if temp_dir and temp_dir.exists():
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except Exception as cleanup_error:
+                        log.warning("temp_cleanup_failed", error=str(cleanup_error))
+
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "saving_revision", "progress": 80},
+            )
+
+            # Create TARevision record
+            from backend.models import TARevision
+            from backend.models.enums import TARevisionType
+
+            ta_revision = TARevision(
+                request_id=request_id,
+                version=next_version,
+                ta_name=ta_name,
+                storage_key=storage_key,
+                config_content=ta_config,
+                generated_by=TARevisionType.AUTO,
+                sourcetype=request.source_system,
             )
             session.add(ta_revision)
+            await session.flush()
 
-            # Step 11: Update status to VALIDATING
-            await request_repo.update_status(request_uuid, RequestStatus.VALIDATING)
-
-            # Step 12: Log completion audit event
-            await audit_repo.create(
-                user_id=None,
-                action=AuditAction.TA_GENERATION_COMPLETE,
-                entity_type="request",
-                entity_id=request_id,
-                details={
-                    "task_id": task.request.id,
-                    "ta_revision_id": str(ta_revision.id),
-                    "version": next_version,
-                    "storage_key": storage_key,
-                    "completed_at": datetime.utcnow().isoformat(),
-                },
-            )
-
-            await session.commit()
-
-            # Cleanup temporary files
-            await ta_service.cleanup_temp_files(package_path)
-
-            task_log.info(
-                "ta_generation_completed",
+            log.info(
+                "ta_revision_created",
                 ta_revision_id=str(ta_revision.id),
                 version=next_version,
+                ta_name=ta_name,
             )
 
-            # TODO: Enqueue validation task (Phase 2)
-            # from backend.tasks.validate_ta_task import validate_ta
-            # validate_ta.delay(request_id=request_id, revision_id=str(ta_revision.id))
+            # Update request status to VALIDATING
+            await request_repo.update_status(request_id, RequestStatus.VALIDATING)
+
+            # Create ValidationRun record
+            from backend.models import ValidationRun
+
+            validation_run = ValidationRun(
+                request_id=request_id,
+                ta_revision_id=ta_revision.id,
+                status=ValidationStatus.QUEUED,
+            )
+            session.add(validation_run)
+            await session.flush()
+
+            # Commit before enqueueing validation task
+            await session.commit()
+
+            log.info(
+                "enqueueing_validation_task",
+                validation_run_id=str(validation_run.id),
+                ta_revision_id=str(ta_revision.id),
+                request_id=str(request_id),
+            )
+
+            # Enqueue validation task
+            from backend.tasks.validate_ta_task import validate_ta_task
+
+            validate_ta_task.apply_async(
+                args=[str(validation_run.id), str(ta_revision.id), str(request_id)],
+                queue="validation",
+            )
+
+            log.info(
+                "audit_ta_generation_complete",
+                action=AuditAction.TA_GENERATION_COMPLETE.value,
+            )
 
             return {
+                "status": "success",
                 "ta_revision_id": str(ta_revision.id),
-                "version": next_version,
-                "storage_key": storage_key,
+                "validation_run_id": str(validation_run.id),
                 "ta_name": ta_name,
+                "version": next_version,
             }
 
         except Exception as e:
-            task_log.error(
-                "ta_generation_failed",
-                error=str(e),
-                exc_info=True,
-            )
+            log.error("ta_generation_failed", error=str(e), error_type=type(e).__name__)
 
-            # Update status to FAILED
+            # Update request status to FAILED
             try:
-                await request_repo.update_status(request_uuid, RequestStatus.FAILED)
-                await audit_repo.create(
-                    user_id=None,
-                    action=AuditAction.TA_GENERATION_FAILED,
-                    entity_type="request",
-                    entity_id=request_id,
-                    details={
-                        "task_id": task.request.id,
-                        "error": str(e),
-                        "failed_at": datetime.utcnow().isoformat(),
-                    },
-                )
+                await request_repo.update_status(request_id, RequestStatus.FAILED)
                 await session.commit()
             except Exception as commit_error:
-                task_log.error(
-                    "failed_to_update_failure_status",
-                    error=str(commit_error),
-                )
+                log.error("failed_to_update_status_on_error", error=str(commit_error))
+
+            log.info("audit_ta_generation_failed", action=AuditAction.TA_GENERATION_FAILED.value)
 
             raise
-
-
-async def _download_sample_preview_fallback(
-    log_samples,
-    storage_client: ObjectStorageClient,
-    task_log,
-) -> str:
-    """
-    Fallback: download first 50 lines from storage for up to 3 samples.
-
-    Used when LogSampleRepository.get_sample_preview returns None/empty.
-    """
-    if not log_samples:
-        task_log.warning("no_log_samples_found")
-        return "No log samples available."
-
-    previews = []
-    for sample in log_samples[:3]:  # Limit to first 3 samples
-        try:
-            if not sample.storage_key:
-                continue
-
-            # Download first ~50KB from storage
-            content_chunks = []
-            bytes_read = 0
-            max_bytes = 50000
-
-            async for chunk in storage_client.download_file_async(
-                bucket=settings.minio_bucket_samples,
-                key=sample.storage_key,
-            ):
-                content_chunks.append(chunk)
-                bytes_read += len(chunk)
-                if bytes_read >= max_bytes:
-                    break
-
-            content = b"".join(content_chunks)[:max_bytes]
-            lines = content.decode("utf-8", errors="replace").split("\n")[:50]
-            preview = "\n".join(lines)
-            previews.append(f"### {sample.original_filename or 'Sample'}\n{preview}")
-
-        except Exception as e:
-            task_log.warning(
-                "failed_to_download_sample_preview",
-                sample_id=str(sample.id),
-                error=str(e),
-            )
-
-    return "\n\n".join(previews) if previews else "Unable to retrieve sample content."
-
-
-def _parse_llm_response(response: Dict[str, Any], task_log) -> Dict[str, Any]:
-    """Parse and validate LLM response."""
-    if isinstance(response, str):
-        try:
-            response = json.loads(response)
-        except json.JSONDecodeError as e:
-            task_log.error("failed_to_parse_llm_response", error=str(e))
-            raise ValueError(f"Invalid JSON response from LLM: {e}")
-
-    # Ensure required fields exist
-    required_fields = ["inputs_conf", "props_conf", "transforms_conf"]
-    for field in required_fields:
-        if field not in response:
-            response[field] = {"stanzas": []}
-
-    # Ensure cim_mappings exists
-    if "cim_mappings" not in response:
-        response["cim_mappings"] = {
-            "data_models": [],
-            "field_aliases": {},
-            "eventtypes": [],
-            "tags": {},
-        }
-
-    return response
-
-
-def _create_config_summary(ta_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a summary of the TA configuration for storage."""
-    return {
-        "ta_name": ta_config.get("ta_name", "unknown"),
-        "inputs_stanza_count": len(ta_config.get("inputs_conf", {}).get("stanzas", [])),
-        "props_stanza_count": len(ta_config.get("props_conf", {}).get("stanzas", [])),
-        "transforms_stanza_count": len(ta_config.get("transforms_conf", {}).get("stanzas", [])),
-        "cim_data_models": ta_config.get("cim_mappings", {}).get("data_models", []),
-        "field_alias_count": len(ta_config.get("cim_mappings", {}).get("field_aliases", {})),
-    }

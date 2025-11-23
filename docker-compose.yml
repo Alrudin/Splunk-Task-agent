@@ -65,49 +65,77 @@ services:
       - splunk-ta-network
 
   # Celery Worker
-  # Processes background tasks (TA generation, validation)
-  celery-worker:
+  # Processes background tasks: TA generation
+  worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: splunk-ta-celery-worker
+    container_name: splunk-ta-worker
     restart: unless-stopped
-    command: >
-      celery -A backend.tasks.celery_app worker
-      --loglevel=info
-      --concurrency=4
-      --queues=default,ta_generation,validation
-      --hostname=worker@%h
+    command: celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=4 --queues=default,ta_generation
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres123@postgres:5432/splunk_ta_generator
+      - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production-must-be-32-chars}
       - PINECONE_API_KEY=${PINECONE_API_KEY:-your-pinecone-api-key}
-      - OLLAMA_HOST=${OLLAMA_HOST:-host.docker.internal}
-      - OLLAMA_PORT=${OLLAMA_PORT:-11434}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-prod-32chars}
+      - LOG_LEVEL=INFO
     volumes:
       - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+      - minio
     networks:
       - splunk-ta-network
 
-  # Flower - Celery Monitoring (Optional)
-  # Web UI for monitoring Celery tasks
+  # Celery Validation Worker
+  # Dedicated worker for TA validation tasks with Docker access for Splunk sandbox
+  validation-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: splunk-ta-validation-worker
+    restart: unless-stopped
+    command: celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=2 --queues=validation
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres123@postgres:5432/splunk_ta_generator
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - PINECONE_API_KEY=${PINECONE_API_KEY:-your-pinecone-api-key}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-prod-32chars}
+      - MAX_PARALLEL_VALIDATIONS=3
+      - SPLUNK_IMAGE=splunk/splunk:9.1.0
+      - SPLUNK_ADMIN_PASSWORD=admin123
+      - DOCKER_NETWORK=splunk-ta-network
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for sandbox orchestration
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    networks:
+      - splunk-ta-network
+
+  # Flower - Celery Monitoring Dashboard
+  # Web UI for monitoring task queues, workers, and task history
   flower:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: splunk-ta-flower
     restart: unless-stopped
-    command: celery -A backend.tasks.celery_app flower --port=5555 --broker=redis://redis:6379/0
+    command: celery -A backend.tasks.celery_app flower --port=5555
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
@@ -117,8 +145,6 @@ services:
       - redis
     networks:
       - splunk-ta-network
-    profiles:
-      - monitoring  # Only start with --profile monitoring
 
 # Docker Networks
 networks:

@@ -22,6 +22,9 @@ flower>=2.0.1                       # Real-time Celery monitoring tool (optional
 httpx>=0.25.2                       # Async HTTP client for Ollama, Pinecone, and Splunk REST API calls
 tenacity>=8.2.3                     # Retry logic for external API calls
 
+# Docker Container Management
+docker>=7.0.0                       # Docker SDK for Python - container orchestration for Splunk sandbox
+
 # Logging & Monitoring
 structlog>=23.2.0                   # Structured logging with correlation IDs and JSON output
 
