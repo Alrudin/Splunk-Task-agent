@@ -10,9 +10,11 @@ This package contains client implementations for:
 
 from backend.integrations.object_storage_client import ObjectStorageClient
 from backend.integrations.pinecone_client import EmbeddingGenerator, PineconeClient
+from backend.integrations.ollama_client import OllamaClient
 
 __all__ = [
-    "ObjectStorageClient",
-    "PineconeClient",
     "EmbeddingGenerator",
+    "ObjectStorageClient",
+    "OllamaClient",
+    "PineconeClient",
 ]

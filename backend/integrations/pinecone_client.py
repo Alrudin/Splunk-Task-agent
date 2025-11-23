@@ -188,18 +188,15 @@ class EmbeddingGenerator:
 
         chunks = []
         start = 0
+        step = max(1, chunk_size - overlap)
 
         while start < len(words):
             end = start + chunk_size
             chunk_words = words[start:end]
             chunks.append(" ".join(chunk_words))
 
-            # Move start position with overlap
-            start += chunk_size - overlap
-
-            # Prevent infinite loop if overlap >= chunk_size
-            if start <= len(chunks) * overlap:
-                start = len(chunks) * chunk_size
+            # Move start position with step
+            start += step
 
         # Apply max chunks limit
         max_chunks = settings.max_chunks_per_document
@@ -394,10 +391,10 @@ class PineconeClient:
             stats = await asyncio.to_thread(index.describe_index_stats)
 
             stats_dict = {
-                "dimension": stats.dimension,
-                "index_fullness": stats.index_fullness,
-                "total_vector_count": stats.total_vector_count,
-                "namespaces": stats.namespaces,
+                "dimension": stats.get("dimension"),
+                "index_fullness": stats.get("index_fullness"),
+                "total_vector_count": stats.get("total_vector_count"),
+                "namespaces": stats.get("namespaces", {}),
             }
 
             log.info("get_index_stats_completed", stats=stats_dict)
@@ -501,7 +498,7 @@ class PineconeClient:
             batch_size: Number of vectors per upsert batch
 
         Returns:
-            Dict with upserted_count and chunk_count
+            Dict with document_count (source documents) and vector_count (chunked vectors upserted)
 
         Raises:
             IndexNotFoundError: If index doesn't exist
@@ -557,8 +554,8 @@ class PineconeClient:
                 )
 
             result = {
-                "upserted_count": len(documents),
-                "chunk_count": len(all_chunks),
+                "document_count": len(documents),
+                "vector_count": upserted_count,
             }
 
             log.info("upsert_documents_completed", result=result)

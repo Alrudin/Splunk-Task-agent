@@ -78,7 +78,10 @@ class Settings(BaseSettings):
 
     # Pinecone API Settings
     pinecone_api_key: str = Field(..., description="Pinecone API key for authentication")
-    pinecone_environment: str = Field(..., description="Pinecone environment/region (e.g., us-west1-gcp)")
+    pinecone_environment: Optional[str] = Field(
+        default=None,
+        description="Pinecone environment (legacy, for non-serverless indexes; use cloud/region for serverless)"
+    )
     pinecone_cloud: str = Field(default="aws", description="Cloud provider for serverless Pinecone")
     pinecone_region: str = Field(default="us-east-1", description="Region for serverless Pinecone deployment")
 
@@ -111,6 +114,25 @@ class Settings(BaseSettings):
     sample_retention_days: int = Field(default=90, description="Days to retain samples")
     max_sample_size_mb: int = Field(default=500, description="Maximum sample file size in MB")
     upload_chunk_size: int = Field(default=1048576, description="Upload chunk size in bytes (default 1MB)")
+
+    # Ollama LLM Settings
+    ollama_host: str = Field(default="localhost", description="Ollama server host")
+    ollama_port: int = Field(default=11434, description="Ollama server port")
+    ollama_model: str = Field(default="llama2", description="Ollama model name for TA generation")
+    ollama_timeout: int = Field(default=300, description="Ollama request timeout in seconds")
+    ollama_temperature: float = Field(default=0.7, description="LLM temperature for generation")
+    ollama_max_tokens: int = Field(default=4096, description="Maximum tokens for LLM responses")
+    ollama_use_ssl: bool = Field(default=False, description="Use HTTPS for Ollama connection")
+
+    # Web Browsing Control Settings
+    allowed_web_domains: str = Field(
+        default="splunk.com,splunkbase.splunk.com,github.com",
+        description="Comma-separated list of allowed domains for web browsing"
+    )
+    blocked_web_domains: str = Field(
+        default="",
+        description="Comma-separated list of blocked domains (takes precedence over allowed)"
+    )
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -154,6 +176,22 @@ class Settings(BaseSettings):
             raise ValueError("PINECONE_API_KEY must be set to a valid API key")
         return v
 
+    @field_validator("ollama_temperature")
+    @classmethod
+    def validate_ollama_temperature(cls, v: float) -> float:
+        """Validate Ollama temperature is in valid range."""
+        if not 0.0 <= v <= 2.0:
+            raise ValueError("OLLAMA_TEMPERATURE must be between 0.0 and 2.0")
+        return v
+
+    @field_validator("ollama_max_tokens")
+    @classmethod
+    def validate_ollama_max_tokens(cls, v: int) -> int:
+        """Validate Ollama max tokens is positive."""
+        if v <= 0:
+            raise ValueError("OLLAMA_MAX_TOKENS must be positive")
+        return v
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""
@@ -164,6 +202,39 @@ class Settings(BaseSettings):
         """Get API prefix path."""
         return f"/api/{self.api_version}"
 
+    @property
+    def ollama_base_url(self) -> str:
+        """Get Ollama base URL for OpenAI client."""
+        protocol = "https" if self.ollama_use_ssl else "http"
+        return f"{protocol}://{self.ollama_host}:{self.ollama_port}/v1"
+
+    @property
+    def allowed_domains_list(self) -> List[str]:
+        """Parse allowed domains from comma-separated string."""
+        if not self.allowed_web_domains:
+            return []
+        return [domain.strip().lower() for domain in self.allowed_web_domains.split(",") if domain.strip()]
+
+    @property
+    def blocked_domains_list(self) -> List[str]:
+        """Parse blocked domains from comma-separated string."""
+        if not self.blocked_web_domains:
+            return []
+        return [domain.strip().lower() for domain in self.blocked_web_domains.split(",") if domain.strip()]
+
 
 # Singleton settings instance
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """
+    Get the singleton settings instance.
+
+    This function provides a consistent way to access settings
+    and is useful for dependency injection in FastAPI.
+
+    Returns:
+        Settings instance loaded from environment
+    """
+    return settings

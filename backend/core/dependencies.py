@@ -21,6 +21,7 @@ from backend.core.exceptions import (
 )
 from backend.integrations.object_storage_client import ObjectStorageClient
 from backend.integrations.pinecone_client import PineconeClient
+from backend.integrations.ollama_client import OllamaClient
 
 
 def get_token_from_header(authorization: str = Header(None)) -> str:
@@ -196,16 +197,23 @@ get_current_knowledge_manager = Depends(require_role(UserRoleEnum.KNOWLEDGE_MANA
 # Singleton instances
 _storage_client: ObjectStorageClient = None
 _pinecone_client: PineconeClient = None
+_ollama_client: OllamaClient = None
 
 
 def get_storage_client() -> ObjectStorageClient:
     """
-    Get object storage client instance.
+    Get object storage client singleton instance.
+
+    This function returns a singleton instance to avoid reinitializing
+    the storage client on every request.
 
     Returns:
         ObjectStorageClient instance configured with settings
     """
-    return ObjectStorageClient()
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = ObjectStorageClient()
+    return _storage_client
 
 
 def get_pinecone_client() -> PineconeClient:
@@ -229,6 +237,29 @@ def get_pinecone_client() -> PineconeClient:
     if _pinecone_client is None:
         _pinecone_client = PineconeClient()
     return _pinecone_client
+
+
+def get_ollama_client() -> OllamaClient:
+    """
+    Get Ollama client singleton instance.
+
+    This function returns a singleton instance to avoid reinitializing
+    the OpenAI client on every request.
+
+    Use with FastAPI's Depends() for dependency injection.
+
+    Example:
+        @app.post("/generate")
+        async def generate(ollama: OllamaClient = Depends(get_ollama_client)):
+            ...
+
+    Returns:
+        OllamaClient instance configured with settings
+    """
+    global _ollama_client
+    if _ollama_client is None:
+        _ollama_client = OllamaClient()
+    return _ollama_client
 
 
 async def get_sample_repository(
