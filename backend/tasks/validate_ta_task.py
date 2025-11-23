@@ -1,0 +1,296 @@
+"""
+Celery task for asynchronous TA validation.
+
+This task orchestrates the complete validation pipeline from queueing
+to completion/failure, including concurrency control and status management.
+"""
+import asyncio
+from typing import Any, Dict
+from uuid import UUID
+
+import structlog
+from celery import Task
+from celery.exceptions import Retry
+
+from backend.core.config import settings
+from backend.database import async_session_factory
+from backend.integrations.object_storage_client import ObjectStorageClient
+from backend.integrations.splunk_sandbox_client import SplunkSandboxClient
+from backend.models.enums import AuditAction, RequestStatus, ValidationStatus
+from backend.repositories.log_sample_repository import LogSampleRepository
+from backend.repositories.request_repository import RequestRepository
+from backend.repositories.ta_revision_repository import TARevisionRepository
+from backend.repositories.validation_run_repository import ValidationRunRepository
+from backend.services.validation_service import ValidationError, ValidationService
+from backend.tasks.celery_app import celery_app
+
+logger = structlog.get_logger(__name__)
+
+
+class ValidationTask(Task):
+    """Custom Celery task class with async support and cleanup handling."""
+
+    abstract = True
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        """Handle task failure - cleanup and logging."""
+        logger.error(
+            "validation_task_failed",
+            task_id=task_id,
+            args=args,
+            error=str(exc),
+            traceback=str(einfo),
+        )
+
+    def on_success(self, retval, task_id, args, kwargs):
+        """Handle task success - logging."""
+        logger.info(
+            "validation_task_succeeded",
+            task_id=task_id,
+            args=args,
+            result_status=retval.get("status") if isinstance(retval, dict) else None,
+        )
+
+
+def run_async(coro):
+    """Run an async coroutine in a new event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+@celery_app.task(
+    name="validate_ta",
+    bind=True,
+    base=ValidationTask,
+    max_retries=3,
+    default_retry_delay=60,
+    time_limit=1800,  # 30 minutes hard limit
+    soft_time_limit=1500,  # 25 minutes soft limit for cleanup
+)
+def validate_ta_task(
+    self: Task,
+    validation_run_id: str,
+    ta_revision_id: str,
+    request_id: str,
+) -> Dict[str, Any]:
+    """
+    Celery task for validating a TA revision.
+
+    This task:
+    1. Checks concurrency limits
+    2. Creates a Splunk sandbox container
+    3. Installs the TA
+    4. Ingests sample logs
+    5. Runs validation searches
+    6. Generates a validation report
+    7. Creates debug bundle on failure
+    8. Updates request and validation status
+
+    Args:
+        validation_run_id: UUID string of the ValidationRun record
+        ta_revision_id: UUID string of the TARevision record
+        request_id: UUID string of the Request record
+
+    Returns:
+        Validation report dictionary
+
+    Raises:
+        Retry: When concurrency limit is reached
+    """
+    log = logger.bind(
+        task_id=self.request.id,
+        validation_run_id=validation_run_id,
+        ta_revision_id=ta_revision_id,
+        request_id=request_id,
+    )
+    log.info("validate_ta_task_started")
+
+    # Run the async validation
+    return run_async(
+        _validate_ta_async(
+            self,
+            UUID(validation_run_id),
+            UUID(ta_revision_id),
+            UUID(request_id),
+        )
+    )
+
+
+async def _validate_ta_async(
+    task: Task,
+    validation_run_id: UUID,
+    ta_revision_id: UUID,
+    request_id: UUID,
+) -> Dict[str, Any]:
+    """
+    Async implementation of TA validation.
+
+    Args:
+        task: Celery task instance
+        validation_run_id: ValidationRun record UUID
+        ta_revision_id: TARevision record UUID
+        request_id: Request record UUID
+
+    Returns:
+        Validation report dictionary
+    """
+    log = logger.bind(
+        task_id=task.request.id,
+        validation_run_id=str(validation_run_id),
+        ta_revision_id=str(ta_revision_id),
+        request_id=str(request_id),
+    )
+
+    async with async_session_factory() as session:
+        # Initialize repositories
+        validation_repo = ValidationRunRepository(session)
+        request_repo = RequestRepository(session)
+        ta_revision_repo = TARevisionRepository(session)
+        sample_repo = LogSampleRepository(session)
+
+        # Initialize clients
+        splunk_client = SplunkSandboxClient()
+        storage_client = ObjectStorageClient()
+
+        # Initialize validation service
+        validation_service = ValidationService(
+            splunk_client=splunk_client,
+            storage_client=storage_client,
+            validation_repo=validation_repo,
+            ta_revision_repo=ta_revision_repo,
+            sample_repo=sample_repo,
+        )
+
+        try:
+            # Check concurrency limit
+            running_count = await validation_repo.get_running_count()
+            log.info("checking_concurrency", running=running_count, max=settings.max_parallel_validations)
+
+            if running_count >= settings.max_parallel_validations:
+                log.info(
+                    "concurrency_limit_reached",
+                    running=running_count,
+                    max=settings.max_parallel_validations,
+                    retry_in=settings.validation_retry_delay,
+                )
+                # Requeue the task with a delay
+                raise task.retry(
+                    countdown=settings.validation_retry_delay,
+                    exc=Exception(f"Concurrency limit reached: {running_count}/{settings.max_parallel_validations}"),
+                )
+
+            # Update task state to show progress
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "starting", "progress": 5},
+            )
+
+            # Log audit event - VALIDATION_START
+            log.info("audit_validation_start", action=AuditAction.VALIDATION_START.value)
+
+            # Execute validation
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "validating", "progress": 20},
+            )
+
+            validation_report = await validation_service.validate_ta_revision(
+                validation_run_id=validation_run_id,
+                ta_revision_id=ta_revision_id,
+                request_id=request_id,
+            )
+
+            task.update_state(
+                state="PROGRESS",
+                meta={"step": "finalizing", "progress": 90},
+            )
+
+            # Determine final status
+            final_status = (
+                ValidationStatus.PASSED
+                if validation_report["status"] == "PASSED"
+                else ValidationStatus.FAILED
+            )
+
+            # Update ValidationRun with results
+            await validation_repo.complete_validation(
+                validation_id=validation_run_id,
+                status=final_status,
+                results=validation_report,
+                debug_bundle_key=validation_report.get("debug_bundle_key"),
+            )
+
+            # Update Request status
+            if final_status == ValidationStatus.PASSED:
+                await request_repo.update_status(request_id, RequestStatus.COMPLETED)
+                log.info("audit_validation_complete", action=AuditAction.VALIDATION_COMPLETE.value)
+            else:
+                await request_repo.update_status(request_id, RequestStatus.FAILED)
+                log.info("audit_validation_failed", action=AuditAction.VALIDATION_FAILED.value)
+
+            # Commit transaction
+            await session.commit()
+
+            log.info(
+                "validate_ta_task_completed",
+                status=validation_report["status"],
+                event_count=validation_report.get("summary", {}).get("total_events", 0),
+                coverage=validation_report.get("summary", {}).get("coverage_pct", 0),
+            )
+
+            return validation_report
+
+        except Retry:
+            # Re-raise retry exceptions
+            raise
+
+        except ValidationError as e:
+            log.error("validation_error", error=str(e), details=e.details)
+
+            # Update ValidationRun with error
+            await validation_repo.complete_validation(
+                validation_id=validation_run_id,
+                status=ValidationStatus.FAILED,
+                results={"error": str(e), "details": e.details},
+                error_message=str(e),
+            )
+
+            # Update Request status to FAILED
+            await request_repo.update_status(request_id, RequestStatus.FAILED)
+
+            await session.commit()
+
+            log.info("audit_validation_failed", action=AuditAction.VALIDATION_FAILED.value)
+
+            return {
+                "status": "FAILED",
+                "error": str(e),
+                "details": e.details,
+            }
+
+        except Exception as e:
+            log.error("unexpected_validation_error", error=str(e), error_type=type(e).__name__)
+
+            # Update ValidationRun with error
+            try:
+                await validation_repo.complete_validation(
+                    validation_id=validation_run_id,
+                    status=ValidationStatus.FAILED,
+                    results={"error": str(e), "error_type": type(e).__name__},
+                    error_message=str(e),
+                )
+
+                # Update Request status to FAILED
+                await request_repo.update_status(request_id, RequestStatus.FAILED)
+
+                await session.commit()
+            except Exception as commit_error:
+                log.error("failed_to_update_status_on_error", error=str(commit_error))
+
+            log.info("audit_validation_failed", action=AuditAction.VALIDATION_FAILED.value)
+
+            raise
