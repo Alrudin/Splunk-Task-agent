@@ -5,7 +5,8 @@ This module provides the database connection, session factory, and utility
 functions for database initialization and health checks.
 """
 import os
-from typing import AsyncGenerator
+from contextlib import contextmanager
+from typing import AsyncGenerator, Generator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -13,13 +14,16 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.models import Base
 
 
 # Database configuration from environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/splunk_ta_generator")
+# Synchronous URL for Celery tasks (replace asyncpg with psycopg2)
+SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg", "+psycopg2").replace("postgresql+psycopg2", "postgresql")
 DATABASE_POOL_SIZE = int(os.getenv("DATABASE_POOL_SIZE", "10"))
 DATABASE_MAX_OVERFLOW = int(os.getenv("DATABASE_MAX_OVERFLOW", "20"))
 DATABASE_ECHO = os.getenv("DATABASE_ECHO", "false").lower() == "true"
@@ -106,3 +110,43 @@ async def dispose_engine() -> None:
     Call this during application shutdown.
     """
     await engine.dispose()
+
+
+# Synchronous engine for Celery tasks
+# Celery tasks run in a separate process and require synchronous database access
+sync_engine = create_engine(
+    SYNC_DATABASE_URL,
+    echo=DATABASE_ECHO,
+    pool_size=DATABASE_POOL_SIZE,
+    max_overflow=DATABASE_MAX_OVERFLOW,
+    pool_pre_ping=True,
+)
+
+# Synchronous session factory
+sync_session_factory = sessionmaker(
+    bind=sync_engine,
+    class_=Session,
+    expire_on_commit=False,
+    autoflush=False,
+    autocommit=False,
+)
+
+
+@contextmanager
+def get_sync_session() -> Generator[Session, None, None]:
+    """
+    Context manager for synchronous database sessions.
+
+    Used by Celery tasks which run synchronously in separate worker processes.
+
+    Example:
+        with get_sync_session() as session:
+            repo = SomeRepository(session)
+            result = repo.get_something()
+            session.commit()
+    """
+    session = sync_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()

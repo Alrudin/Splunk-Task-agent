@@ -12,6 +12,7 @@ from backend.models.enums import UserRoleEnum
 from backend.repositories.user_repository import UserRepository
 from backend.repositories.request_repository import RequestRepository
 from backend.repositories.log_sample_repository import LogSampleRepository
+from backend.repositories.knowledge_document_repository import KnowledgeDocumentRepository
 from backend.core.security import decode_jwt_token
 from backend.core.exceptions import (
     InvalidTokenError,
@@ -320,4 +321,28 @@ async def get_approval_service(
     return ApprovalService(
         request_repository=request_repo,
         audit_log_repository=audit_repo,
+    )
+
+
+async def get_knowledge_service(
+    db: AsyncSession = Depends(get_db)
+) -> "KnowledgeService":
+    """Get knowledge service instance with injected dependencies.
+
+    Args:
+        db: Database session
+
+    Returns:
+        KnowledgeService instance with injected repositories and clients
+    """
+    from backend.services.knowledge_service import KnowledgeService
+
+    knowledge_repository = KnowledgeDocumentRepository(db)
+    storage_client = get_storage_client()
+    pinecone_client = get_pinecone_client()
+
+    return KnowledgeService(
+        knowledge_document_repository=knowledge_repository,
+        storage_client=storage_client,
+        pinecone_client=pinecone_client
     )
