@@ -134,6 +134,32 @@ class Settings(BaseSettings):
         description="Comma-separated list of blocked domains (takes precedence over allowed)"
     )
 
+    # Celery Task Queue Settings
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis URL for Celery message broker"
+    )
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/1",
+        description="Redis URL for Celery result backend"
+    )
+    celery_task_time_limit: int = Field(
+        default=3600,
+        description="Hard time limit for tasks in seconds (default 1 hour)"
+    )
+    celery_task_soft_time_limit: int = Field(
+        default=3300,
+        description="Soft time limit for tasks in seconds (default 55 minutes)"
+    )
+    celery_worker_concurrency: int = Field(
+        default=4,
+        description="Number of concurrent worker processes"
+    )
+    max_parallel_validations: int = Field(
+        default=3,
+        description="Maximum concurrent Splunk validation runs"
+    )
+
     @field_validator("jwt_secret_key")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:
