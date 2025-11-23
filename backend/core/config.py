@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     splunk_management_port_range_start: int = Field(default=18089, description="Start of port range for Splunk management")
     splunk_management_port_range_end: int = Field(default=18189, description="End of port range for Splunk management")
     docker_network: str = Field(default="splunk-ta-network", description="Docker network for Splunk containers")
+    splunk_host: str = Field(default="localhost", description="Host address for Splunk REST API (use host.docker.internal in containers)")
+    splunk_use_ssl: bool = Field(default=False, description="Use HTTPS for Splunk REST API connections")
+    splunk_verify_ssl: bool = Field(default=False, description="Verify SSL certificates for Splunk REST API")
 
     # Validation Settings
     max_parallel_validations: int = Field(default=3, description="Maximum concurrent validation runs")

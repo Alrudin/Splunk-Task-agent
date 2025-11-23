@@ -157,8 +157,8 @@ class ValidationService:
             )
             log.info("sandbox_created", container_id=sandbox_info["container_id"][:12])
 
-            # Update validation run with container ID
-            await self.validation_repo.start_validation(
+            # Record container ID (status already set to RUNNING by Celery task)
+            await self.validation_repo.set_container_id(
                 validation_id=validation_run_id,
                 container_id=sandbox_info["container_id"],
             )
@@ -725,3 +725,126 @@ class ValidationService:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
                     log.warning("debug_bundle_cleanup_failed", error=str(e))
+
+    async def create_early_failure_debug_bundle(
+        self,
+        validation_run_id: UUID,
+        request_id: UUID,
+        ta_revision_id: UUID,
+        error_message: str,
+        error_details: Optional[Dict] = None,
+    ) -> str:
+        """
+        Create a minimal debug bundle for early-stage failures.
+
+        This method is called when validation fails before the full sandbox
+        setup is complete (e.g., missing TARevision, missing samples, etc.).
+        The bundle contains only error information and basic context.
+
+        Args:
+            validation_run_id: ValidationRun record ID
+            request_id: Request record ID
+            ta_revision_id: TARevision record ID
+            error_message: The error message
+            error_details: Additional error details dictionary
+
+        Returns:
+            Storage key for the uploaded debug bundle
+
+        Raises:
+            DebugBundleError: On bundle creation failure
+        """
+        log = logger.bind(
+            validation_run_id=str(validation_run_id),
+            request_id=str(request_id),
+        )
+        log.info("create_early_failure_debug_bundle_started")
+
+        temp_dir = None
+        try:
+            # Create temp directory for bundle contents
+            temp_dir = Path(tempfile.mkdtemp(prefix=f"debug-early-{validation_run_id}-"))
+            bundle_dir = temp_dir / f"debug-bundle-{validation_run_id}"
+            bundle_dir.mkdir()
+
+            # Build minimal validation report for early failure
+            validation_report = {
+                "status": "FAILED",
+                "timestamp": datetime.utcnow().isoformat(),
+                "summary": {
+                    "total_events": 0,
+                    "ta_name": "unknown",
+                    "index_name": self.index_name,
+                    "fields_extracted": 0,
+                    "fields_expected": 0,
+                    "coverage_pct": 0,
+                },
+                "field_coverage": {},
+                "checks": [],
+                "errors": [error_message],
+                "warnings": ["This is an early-stage failure. The validation could not complete."],
+                "sample_events": [],
+                "early_failure": True,
+                "error_details": error_details or {},
+            }
+
+            # Write validation report
+            report_path = bundle_dir / "validation_report.json"
+            with open(report_path, "w") as f:
+                json.dump(validation_report, f, indent=2, default=str)
+
+            # Write error summary
+            error_summary_path = bundle_dir / "error_summary.txt"
+            with open(error_summary_path, "w") as f:
+                f.write("Validation Debug Bundle - Early Failure\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(f"Validation Run ID: {validation_run_id}\n")
+                f.write(f"Request ID: {request_id}\n")
+                f.write(f"TA Revision ID: {ta_revision_id}\n")
+                f.write(f"Status: FAILED (Early Failure)\n")
+                f.write(f"Timestamp: {validation_report['timestamp']}\n\n")
+                f.write("Error:\n")
+                f.write(f"  {error_message}\n\n")
+                if error_details:
+                    f.write("Error Details:\n")
+                    for key, value in error_details.items():
+                        f.write(f"  {key}: {value}\n")
+                f.write("\n")
+                f.write("Note: This is an early-stage failure. The validation could not\n")
+                f.write("proceed to sandbox creation or log ingestion. Common causes:\n")
+                f.write("  - TARevision not found in database\n")
+                f.write("  - TA artifact not found in object storage\n")
+                f.write("  - No active samples for the request\n")
+                f.write("  - Sample files not found in object storage\n")
+
+            # Create zip archive
+            zip_path = temp_dir / f"debug-early-{request_id}-{validation_run_id}.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for file_path in bundle_dir.rglob("*"):
+                    if file_path.is_file():
+                        arcname = file_path.relative_to(bundle_dir)
+                        zipf.write(file_path, arcname)
+
+            # Upload to MinIO
+            storage_key = f"debug/{request_id}/{validation_run_id}.zip"
+            with open(zip_path, "rb") as f:
+                await self.storage_client.upload_file_async(
+                    file_obj=f,
+                    bucket=settings.minio_bucket_debug,
+                    key=storage_key,
+                    content_type="application/zip",
+                )
+
+            log.info("create_early_failure_debug_bundle_completed", storage_key=storage_key)
+            return storage_key
+
+        except Exception as e:
+            log.error("create_early_failure_debug_bundle_failed", error=str(e))
+            raise DebugBundleError(f"Failed to create early failure debug bundle: {str(e)}")
+
+        finally:
+            if temp_dir and temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    log.warning("early_debug_bundle_cleanup_failed", error=str(e))

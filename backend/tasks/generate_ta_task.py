@@ -5,6 +5,11 @@ This task orchestrates the complete TA generation pipeline,
 including LLM interaction, TA packaging, and enqueueing validation.
 """
 import asyncio
+import os
+import shutil
+import tarfile
+import tempfile
+from pathlib import Path
 from typing import Any, Dict
 from uuid import UUID
 
@@ -188,10 +193,97 @@ async def _generate_ta_async(
             # Get next version number
             next_version = await ta_revision_repo.get_next_version(request_id)
 
-            # TODO: Package TA and upload to MinIO
-            # For now, we'll create a placeholder storage key
-            ta_name = f"TA-{request.source_system.replace(' ', '_')}"
+            # Create TA name (sanitize source_system for directory name)
+            ta_name = f"TA-{request.source_system.replace(' ', '_').replace('/', '-')}"
             storage_key = f"ta/{request_id}/v{next_version}/{ta_name}.tgz"
+
+            # Create TA directory structure and package as tarball
+            temp_dir = None
+            try:
+                temp_dir = Path(tempfile.mkdtemp(prefix=f"ta-gen-{request_id}-"))
+                ta_dir = temp_dir / ta_name
+                default_dir = ta_dir / "default"
+                default_dir.mkdir(parents=True)
+
+                # Create app.conf
+                app_conf_path = default_dir / "app.conf"
+                with open(app_conf_path, "w") as f:
+                    f.write(f"[install]\n")
+                    f.write(f"is_configured = 0\n")
+                    f.write(f"build = {next_version}\n\n")
+                    f.write(f"[ui]\n")
+                    f.write(f"is_visible = 0\n")
+                    f.write(f"label = {ta_name}\n\n")
+                    f.write(f"[launcher]\n")
+                    f.write(f"author = Splunk TA Generator\n")
+                    f.write(f"description = Auto-generated TA for {request.source_system}\n")
+                    f.write(f"version = 1.0.{next_version}\n")
+
+                # Create props.conf from ta_config
+                props_conf_path = default_dir / "props.conf"
+                with open(props_conf_path, "w") as f:
+                    props_config = ta_config.get("props", {})
+                    for stanza, settings_dict in props_config.items():
+                        f.write(f"[{stanza}]\n")
+                        for key, value in settings_dict.items():
+                            f.write(f"{key} = {value}\n")
+                        f.write("\n")
+
+                # Create transforms.conf if present
+                transforms_config = ta_config.get("transforms", {})
+                if transforms_config:
+                    transforms_conf_path = default_dir / "transforms.conf"
+                    with open(transforms_conf_path, "w") as f:
+                        for stanza, settings_dict in transforms_config.items():
+                            f.write(f"[{stanza}]\n")
+                            for key, value in settings_dict.items():
+                                f.write(f"{key} = {value}\n")
+                            f.write("\n")
+
+                # Create inputs.conf if present
+                inputs_config = ta_config.get("inputs", {})
+                if inputs_config:
+                    inputs_conf_path = default_dir / "inputs.conf"
+                    with open(inputs_conf_path, "w") as f:
+                        for stanza, settings_dict in inputs_config.items():
+                            f.write(f"[{stanza}]\n")
+                            for key, value in settings_dict.items():
+                                f.write(f"{key} = {value}\n")
+                            f.write("\n")
+
+                # Create tarball
+                tarball_path = temp_dir / f"{ta_name}.tgz"
+                with tarfile.open(tarball_path, "w:gz") as tar:
+                    tar.add(ta_dir, arcname=ta_name)
+
+                log.info("ta_tarball_created", path=str(tarball_path), size=tarball_path.stat().st_size)
+
+                task.update_state(
+                    state="PROGRESS",
+                    meta={"step": "uploading_ta", "progress": 70},
+                )
+
+                # Upload tarball to MinIO
+                with open(tarball_path, "rb") as f:
+                    await storage_client.upload_file_async(
+                        file_obj=f,
+                        bucket=settings.minio_bucket_tas,
+                        key=storage_key,
+                        content_type="application/gzip",
+                    )
+
+                log.info("ta_uploaded_to_storage", storage_key=storage_key)
+
+            except Exception as upload_error:
+                log.error("ta_packaging_or_upload_failed", error=str(upload_error))
+                raise ValueError(f"Failed to package or upload TA: {str(upload_error)}")
+            finally:
+                # Clean up temp directory
+                if temp_dir and temp_dir.exists():
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except Exception as cleanup_error:
+                        log.warning("temp_cleanup_failed", error=str(cleanup_error))
 
             task.update_state(
                 state="PROGRESS",

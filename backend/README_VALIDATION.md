@@ -128,14 +128,17 @@ QUEUED → RUNNING → PASSED
 | `SPLUNK_IMAGE` | `splunk/splunk:9.1.0` | Docker image for Splunk containers |
 | `SPLUNK_STARTUP_TIMEOUT` | `300` | Container startup timeout (seconds) |
 | `SPLUNK_ADMIN_PASSWORD` | `admin123` | Splunk admin password |
-| `SPLUNK_MANAGEMENT_PORT_RANGE_START` | `18089` | Port range start |
-| `SPLUNK_MANAGEMENT_PORT_RANGE_END` | `18189` | Port range end |
+| `SPLUNK_HOST` | `localhost` | Host for Splunk REST API (use `host.docker.internal` in containers) |
+| `SPLUNK_USE_SSL` | `false` | Use HTTPS for Splunk REST API |
+| `SPLUNK_VERIFY_SSL` | `false` | Verify SSL certificates (enable when TLS configured) |
 | `DOCKER_NETWORK` | `splunk-ta-network` | Docker network name |
 | `MAX_PARALLEL_VALIDATIONS` | `3` | Max concurrent validations |
 | `VALIDATION_TIMEOUT` | `1800` | Overall timeout (30 min) |
 | `VALIDATION_RETRY_DELAY` | `60` | Retry delay (seconds) |
 | `VALIDATION_INDEX_NAME` | `ta_validation_test` | Test index name |
 | `VALIDATION_FIELD_COVERAGE_THRESHOLD` | `0.7` | Min coverage (0.0-1.0) |
+
+**Note:** The `SPLUNK_MANAGEMENT_PORT_RANGE_START/END` settings are deprecated. Port allocation now uses Docker's ephemeral port assignment for better reliability.
 
 ### Recommended Settings by Environment
 
@@ -156,7 +159,11 @@ SPLUNK_ADMIN_PASSWORD=<strong-password>
 
 ## Debug Bundles
 
-When validation fails, a debug bundle is created containing:
+When validation fails, a debug bundle is created containing diagnostic information.
+
+### Standard Debug Bundles (Late-Stage Failures)
+
+Created when validation fails after sandbox creation (e.g., field extraction issues, search failures):
 
 ```
 debug-bundle-{validation_run_id}/
@@ -167,6 +174,29 @@ debug-bundle-{validation_run_id}/
     ├── splunkd.log          # Splunk daemon logs
     └── {ta_name}.log        # TA-specific logs (if any)
 ```
+
+### Early-Stage Failure Debug Bundles
+
+Created when validation fails before sandbox creation (e.g., missing TARevision, missing samples).
+These bundles contain reduced information since no Splunk container was created:
+
+```
+debug-bundle-{validation_run_id}/
+├── validation_report.json    # Error information and context
+└── error_summary.txt         # Human-readable error description
+```
+
+Early failure bundles include:
+- Error message and type
+- Request, TARevision, and ValidationRun IDs
+- Timestamp
+- Common causes and troubleshooting hints
+
+**Note:** Early failures may occur due to:
+- TARevision not found in database
+- TA artifact not found in object storage
+- No active samples for the request
+- Sample files not found in object storage
 
 ### Accessing Debug Bundles
 
@@ -360,6 +390,20 @@ Per validation worker:
 - **Memory**: 4GB minimum (Splunk containers need ~2GB each)
 - **Disk**: 10GB for temp files and container images
 
+### Port Allocation Strategy
+
+The validation system uses Docker's ephemeral port assignment for Splunk container ports:
+
+- **How it works**: When creating containers, host ports are set to `None`, allowing Docker to automatically assign available ports from the ephemeral range (typically 32768-60999).
+- **Benefits**:
+  - Eliminates port conflicts when running multiple validations
+  - No need to coordinate ports across workers
+  - Works reliably with any value of `MAX_PARALLEL_VALIDATIONS`
+- **Port discovery**: After container start, the actual assigned ports are retrieved via `container.attrs['NetworkSettings']['Ports']`
+- **Retry logic**: If a port conflict still occurs (rare), the system retries up to 3 times
+
+**Note:** The legacy `SPLUNK_MANAGEMENT_PORT_RANGE_START/END` settings are no longer used.
+
 ### Security Considerations
 
 1. **Docker Socket Access**: The validation worker needs Docker socket access. In production:
@@ -374,6 +418,11 @@ Per validation worker:
 3. **Network Isolation**: Splunk containers should be on isolated network
    - Use Docker network segmentation
    - Firewall rules to restrict access
+
+4. **SSL/TLS Configuration**: By default, Splunk REST API uses HTTP for simplicity
+   - Set `SPLUNK_USE_SSL=true` to use HTTPS
+   - Set `SPLUNK_VERIFY_SSL=true` when proper TLS certificates are configured
+   - In production with sensitive data, configure TLS properly
 
 ## API Reference
 

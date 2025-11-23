@@ -166,9 +166,11 @@ async def _validate_ta_async(
         )
 
         try:
-            # Check concurrency limit
-            running_count = await validation_repo.get_running_count()
-            log.info("checking_concurrency", running=running_count, max=settings.max_parallel_validations)
+            # Check concurrency limit using active count (QUEUED + RUNNING)
+            # Subtract 1 because this validation is already QUEUED
+            active_count = await validation_repo.get_active_count()
+            running_count = active_count - 1  # Exclude this task from count
+            log.info("checking_concurrency", active=active_count, running=running_count, max=settings.max_parallel_validations)
 
             if running_count >= settings.max_parallel_validations:
                 log.info(
@@ -182,6 +184,12 @@ async def _validate_ta_async(
                     countdown=settings.validation_retry_delay,
                     exc=Exception(f"Concurrency limit reached: {running_count}/{settings.max_parallel_validations}"),
                 )
+
+            # Transition status to RUNNING immediately after passing concurrency check
+            # This ensures the record is counted as active before any expensive operations
+            await validation_repo.update_status(validation_run_id, ValidationStatus.RUNNING)
+            await session.commit()
+            log.info("status_transitioned_to_running")
 
             # Update task state to show progress
             task.update_state(
@@ -251,12 +259,27 @@ async def _validate_ta_async(
         except ValidationError as e:
             log.error("validation_error", error=str(e), details=e.details)
 
+            # Create minimal debug bundle for early failures
+            debug_bundle_key = None
+            try:
+                debug_bundle_key = await validation_service.create_early_failure_debug_bundle(
+                    validation_run_id=validation_run_id,
+                    request_id=request_id,
+                    ta_revision_id=ta_revision_id,
+                    error_message=str(e),
+                    error_details=e.details,
+                )
+                log.info("early_failure_debug_bundle_created", key=debug_bundle_key)
+            except Exception as bundle_error:
+                log.warning("failed_to_create_debug_bundle", error=str(bundle_error))
+
             # Update ValidationRun with error
             await validation_repo.complete_validation(
                 validation_id=validation_run_id,
                 status=ValidationStatus.FAILED,
                 results={"error": str(e), "details": e.details},
                 error_message=str(e),
+                debug_bundle_key=debug_bundle_key,
             )
 
             # Update Request status to FAILED
@@ -270,10 +293,25 @@ async def _validate_ta_async(
                 "status": "FAILED",
                 "error": str(e),
                 "details": e.details,
+                "debug_bundle_key": debug_bundle_key,
             }
 
         except Exception as e:
             log.error("unexpected_validation_error", error=str(e), error_type=type(e).__name__)
+
+            # Create minimal debug bundle for unexpected failures
+            debug_bundle_key = None
+            try:
+                debug_bundle_key = await validation_service.create_early_failure_debug_bundle(
+                    validation_run_id=validation_run_id,
+                    request_id=request_id,
+                    ta_revision_id=ta_revision_id,
+                    error_message=str(e),
+                    error_details={"error_type": type(e).__name__},
+                )
+                log.info("early_failure_debug_bundle_created", key=debug_bundle_key)
+            except Exception as bundle_error:
+                log.warning("failed_to_create_debug_bundle", error=str(bundle_error))
 
             # Update ValidationRun with error
             try:
@@ -282,6 +320,7 @@ async def _validate_ta_async(
                     status=ValidationStatus.FAILED,
                     results={"error": str(e), "error_type": type(e).__name__},
                     error_message=str(e),
+                    debug_bundle_key=debug_bundle_key,
                 )
 
                 # Update Request status to FAILED

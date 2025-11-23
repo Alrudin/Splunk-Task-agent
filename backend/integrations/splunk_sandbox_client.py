@@ -78,40 +78,66 @@ class SplunkSandboxClient:
         self.admin_password = settings.splunk_admin_password
         self.startup_timeout = settings.splunk_startup_timeout
         self.docker_network = settings.docker_network
-        self.port_range_start = settings.splunk_management_port_range_start
-        self.port_range_end = settings.splunk_management_port_range_end
+        self.splunk_host = settings.splunk_host
+        self.use_ssl = settings.splunk_use_ssl
+        self.verify_ssl = settings.splunk_verify_ssl
 
         logger.info(
             "splunk_sandbox_client_initialized",
             splunk_image=self.splunk_image,
             docker_network=self.docker_network,
-            port_range=f"{self.port_range_start}-{self.port_range_end}",
+            splunk_host=self.splunk_host,
+            use_ssl=self.use_ssl,
         )
 
-    def _get_available_port(self) -> int:
+    def _get_base_url(self, port: int) -> str:
         """
-        Get an available port from the configured range.
+        Build the base URL for Splunk REST API.
+
+        Args:
+            port: The port number for the Splunk management API
 
         Returns:
-            Available port number
-
-        Note:
-            This is a simple random selection. For production, consider
-            tracking used ports or using Docker's automatic port assignment.
+            Base URL string (e.g., http://localhost:18089)
         """
-        return random.randint(self.port_range_start, self.port_range_end)
+        protocol = "https" if self.use_ssl else "http"
+        return f"{protocol}://{self.splunk_host}:{port}"
+
+    def _get_bound_port(self, container, internal_port: str) -> Optional[int]:
+        """
+        Get the host port bound to a container's internal port.
+
+        Args:
+            container: Docker container object
+            internal_port: Internal port string (e.g., "8089/tcp")
+
+        Returns:
+            Host port number or None if not found
+        """
+        container.reload()  # Refresh container info
+        ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
+        bindings = ports.get(internal_port)
+        if bindings and len(bindings) > 0:
+            return int(bindings[0].get("HostPort"))
+        return None
 
     async def create_sandbox(
         self,
         validation_run_id: str,
         labels: Optional[Dict[str, str]] = None,
+        max_retries: int = 3,
     ) -> Dict[str, Any]:
         """
         Launch a new Splunk Enterprise container for validation.
 
+        Uses Docker's ephemeral port assignment to avoid port conflicts.
+        The container exposes ports 8089 (management) and 8088 (HEC), and
+        Docker assigns available host ports automatically.
+
         Args:
             validation_run_id: Unique identifier for this validation run
             labels: Optional additional labels for the container
+            max_retries: Maximum retries on port conflict errors
 
         Returns:
             Dict with container_id, management_url, hec_url, management_port, hec_port
@@ -123,83 +149,109 @@ class SplunkSandboxClient:
         log.info("create_sandbox_started")
 
         container_name = f"splunk-validation-{validation_run_id}"
-        management_port = self._get_available_port()
-        hec_port = management_port + 1000  # Offset HEC port
 
-        try:
-            # Ensure image is available
+        for attempt in range(max_retries):
             try:
-                self.docker_client.images.get(self.splunk_image)
-            except ImageNotFound:
-                log.info("pulling_splunk_image", image=self.splunk_image)
-                self.docker_client.images.pull(self.splunk_image)
+                # Ensure image is available
+                try:
+                    self.docker_client.images.get(self.splunk_image)
+                except ImageNotFound:
+                    log.info("pulling_splunk_image", image=self.splunk_image)
+                    self.docker_client.images.pull(self.splunk_image)
 
-            # Container configuration
-            container_labels = {
-                "splunk-ta-validation": "true",
-                "validation-run-id": validation_run_id,
-            }
-            if labels:
-                container_labels.update(labels)
+                # Container configuration
+                container_labels = {
+                    "splunk-ta-validation": "true",
+                    "validation-run-id": validation_run_id,
+                }
+                if labels:
+                    container_labels.update(labels)
 
-            # Environment variables for Splunk container
-            environment = {
-                "SPLUNK_START_ARGS": "--accept-license",
-                "SPLUNK_PASSWORD": self.admin_password,
-                "SPLUNK_HEC_TOKEN": f"validation-{validation_run_id}",
-            }
+                # Environment variables for Splunk container
+                environment = {
+                    "SPLUNK_START_ARGS": "--accept-license",
+                    "SPLUNK_PASSWORD": self.admin_password,
+                    "SPLUNK_HEC_TOKEN": f"validation-{validation_run_id}",
+                }
 
-            # Port bindings
-            ports = {
-                "8089/tcp": management_port,  # Management port
-                "8088/tcp": hec_port,  # HEC port
-            }
+                # Use Docker ephemeral port assignment (None = auto-assign)
+                # This avoids port conflicts when running multiple validations
+                ports = {
+                    "8089/tcp": None,  # Management port - auto-assign
+                    "8088/tcp": None,  # HEC port - auto-assign
+                }
 
-            # Create container
-            container = self.docker_client.containers.create(
-                image=self.splunk_image,
-                name=container_name,
-                environment=environment,
-                ports=ports,
-                labels=container_labels,
-                detach=True,
-                remove=False,  # Don't auto-remove, we'll clean up manually
-            )
+                # Create container
+                container = self.docker_client.containers.create(
+                    image=self.splunk_image,
+                    name=container_name,
+                    environment=environment,
+                    ports=ports,
+                    labels=container_labels,
+                    detach=True,
+                    remove=False,  # Don't auto-remove, we'll clean up manually
+                )
 
-            # Try to connect to network if it exists
-            try:
-                network = self.docker_client.networks.get(self.docker_network)
-                network.connect(container)
-                log.info("container_connected_to_network", network=self.docker_network)
-            except NotFound:
-                log.warning("docker_network_not_found", network=self.docker_network)
+                # Try to connect to network if it exists
+                try:
+                    network = self.docker_client.networks.get(self.docker_network)
+                    network.connect(container)
+                    log.info("container_connected_to_network", network=self.docker_network)
+                except NotFound:
+                    log.warning("docker_network_not_found", network=self.docker_network)
 
-            # Start container
-            container.start()
+                # Start container
+                container.start()
 
-            log.info(
-                "create_sandbox_completed",
-                container_id=container.id,
-                container_name=container_name,
-                management_port=management_port,
-                hec_port=hec_port,
-            )
+                # Get the actual assigned ports after container start
+                management_port = self._get_bound_port(container, "8089/tcp")
+                hec_port = self._get_bound_port(container, "8088/tcp")
 
-            return {
-                "container_id": container.id,
-                "container_name": container_name,
-                "management_url": f"https://localhost:{management_port}",
-                "hec_url": f"https://localhost:{hec_port}",
-                "management_port": management_port,
-                "hec_port": hec_port,
-            }
+                if not management_port or not hec_port:
+                    raise SandboxCreationError(
+                        "Failed to get assigned ports from container",
+                        container_id=container.id,
+                    )
 
-        except (APIError, ContainerError, ImageNotFound) as e:
-            log.error("create_sandbox_failed", error=str(e))
-            raise SandboxCreationError(
-                f"Failed to create Splunk container: {str(e)}",
-                details={"validation_run_id": validation_run_id, "error_type": type(e).__name__},
-            ) from e
+                log.info(
+                    "create_sandbox_completed",
+                    container_id=container.id,
+                    container_name=container_name,
+                    management_port=management_port,
+                    hec_port=hec_port,
+                )
+
+                return {
+                    "container_id": container.id,
+                    "container_name": container_name,
+                    "management_url": self._get_base_url(management_port),
+                    "hec_url": self._get_base_url(hec_port),
+                    "management_port": management_port,
+                    "hec_port": hec_port,
+                }
+
+            except APIError as e:
+                # Check if it's a port conflict error
+                if "port is already allocated" in str(e).lower() and attempt < max_retries - 1:
+                    log.warning("port_conflict_retrying", attempt=attempt + 1, error=str(e))
+                    await asyncio.sleep(1)
+                    continue
+                log.error("create_sandbox_failed", error=str(e))
+                raise SandboxCreationError(
+                    f"Failed to create Splunk container: {str(e)}",
+                    details={"validation_run_id": validation_run_id, "error_type": type(e).__name__},
+                ) from e
+            except (ContainerError, ImageNotFound) as e:
+                log.error("create_sandbox_failed", error=str(e))
+                raise SandboxCreationError(
+                    f"Failed to create Splunk container: {str(e)}",
+                    details={"validation_run_id": validation_run_id, "error_type": type(e).__name__},
+                ) from e
+
+        raise SandboxCreationError(
+            f"Failed to create container after {max_retries} attempts",
+            details={"validation_run_id": validation_run_id},
+        )
 
     async def wait_for_ready(
         self,
@@ -228,10 +280,11 @@ class SplunkSandboxClient:
 
         log.info("wait_for_ready_started", timeout=timeout)
 
-        url = f"https://localhost:{management_port}/services/server/info"
+        base_url = self._get_base_url(management_port)
+        url = f"{base_url}/services/server/info"
         auth = ("admin", self.admin_password)
 
-        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+        async with httpx.AsyncClient(verify=self.verify_ssl, timeout=10.0) as client:
             while elapsed < timeout:
                 try:
                     response = await client.get(url, auth=auth)
@@ -417,10 +470,11 @@ class SplunkSandboxClient:
         log = logger.bind(container_id=container_id[:12])
 
         # Restart via REST API
-        url = f"https://localhost:{management_port}/services/server/control/restart"
+        base_url = self._get_base_url(management_port)
+        url = f"{base_url}/services/server/control/restart"
         auth = ("admin", self.admin_password)
 
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=self.verify_ssl, timeout=30.0) as client:
             try:
                 await client.post(url, auth=auth)
             except httpx.RequestError:
@@ -450,10 +504,11 @@ class SplunkSandboxClient:
         """
         log = logger.bind(container_id=container_id[:12], ta_name=ta_name)
 
-        url = f"https://localhost:{management_port}/services/apps/local/{ta_name}"
+        base_url = self._get_base_url(management_port)
+        url = f"{base_url}/services/apps/local/{ta_name}"
         auth = ("admin", self.admin_password)
 
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=self.verify_ssl, timeout=30.0) as client:
             try:
                 response = await client.get(url, auth=auth)
                 if response.status_code == 200:
@@ -485,11 +540,12 @@ class SplunkSandboxClient:
         log = logger.bind(container_id=container_id[:12], index_name=index_name)
         log.info("create_test_index_started")
 
-        url = f"https://localhost:{management_port}/services/data/indexes"
+        base_url = self._get_base_url(management_port)
+        url = f"{base_url}/services/data/indexes"
         auth = ("admin", self.admin_password)
         data = {"name": index_name}
 
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=self.verify_ssl, timeout=30.0) as client:
             try:
                 response = await client.post(url, auth=auth, data=data)
                 if response.status_code in (200, 201, 409):  # 409 = already exists
@@ -681,7 +737,8 @@ class SplunkSandboxClient:
         log.info("execute_search_started")
 
         # Create search job
-        url = f"https://localhost:{management_port}/services/search/jobs"
+        base_url = self._get_base_url(management_port)
+        url = f"{base_url}/services/search/jobs"
         auth = ("admin", self.admin_password)
         data = {
             "search": search_query,
@@ -689,7 +746,7 @@ class SplunkSandboxClient:
             "max_count": max_results,
         }
 
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=self.verify_ssl, timeout=30.0) as client:
             try:
                 # Create job
                 response = await client.post(url, auth=auth, data=data)
@@ -723,7 +780,7 @@ class SplunkSandboxClient:
                     )
 
                 # Poll for job completion
-                job_url = f"https://localhost:{management_port}/services/search/jobs/{sid}"
+                job_url = f"{base_url}/services/search/jobs/{sid}"
                 elapsed = 0
                 poll_interval = 2
 
@@ -745,7 +802,7 @@ class SplunkSandboxClient:
                     elapsed += poll_interval
 
                 # Get results
-                results_url = f"https://localhost:{management_port}/services/search/jobs/{sid}/results"
+                results_url = f"{base_url}/services/search/jobs/{sid}/results"
                 results_response = await client.get(
                     results_url, auth=auth, params={"output_mode": "json", "count": max_results}
                 )
