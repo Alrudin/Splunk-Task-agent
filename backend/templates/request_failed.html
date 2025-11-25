@@ -1,0 +1,96 @@
+{% extends "email_base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Hello {{ user_name }},
+</div>
+
+<div class="message-box" style="border-left-color: #dc3545;">
+    <h2 style="margin-top: 0; color: #dc3545;">
+        <span class="status-badge status-error">Failed</span>
+    </h2>
+    <p style="font-size: 16px; margin-bottom: 0;">
+        Your TA generation request has failed validation.
+    </p>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Request Details</h3>
+<table class="details-table">
+    <tr>
+        <td>Request ID:</td>
+        <td><code>{{ request_id }}</code></td>
+    </tr>
+    <tr>
+        <td>Source System:</td>
+        <td>{{ source_system }}</td>
+    </tr>
+    <tr>
+        <td>Submission Date:</td>
+        <td>{{ submission_date }}</td>
+    </tr>
+    <tr>
+        <td>Failure Date:</td>
+        <td>{{ failure_date }}</td>
+    </tr>
+</table>
+
+{% if error_message %}
+<h3 style="color: #333333; margin-top: 30px;">Error Details</h3>
+<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; padding: 15px; margin: 15px 0;">
+    <p style="margin: 0; color: #721c24;">
+        <strong>Error:</strong> {{ error_message }}
+    </p>
+</div>
+{% endif %}
+
+{% if validation_results %}
+<h3 style="color: #333333; margin-top: 30px;">Validation Results</h3>
+<div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; padding: 15px; margin: 15px 0;">
+    <p style="margin: 5px 0;"><strong>Status:</strong> <span style="color: #721c24;">FAILED</span></p>
+    {% if validation_results.errors %}
+    <p style="margin: 10px 0 5px 0;"><strong>Specific Errors:</strong></p>
+    <ul style="margin: 5px 0; padding-left: 20px; color: #721c24;">
+        {% for error in validation_results.errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endif %}
+
+<div style="text-align: center; margin: 30px 0;">
+    <a href="{{ debug_bundle_url }}" class="btn" style="background-color: #6c757d;">Download Debug Bundle</a>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Next Steps</h3>
+<ol style="padding-left: 20px; color: #666666;">
+    <li>Download the debug bundle to review the generated TA and error logs</li>
+    <li>Identify the issues causing the validation failure</li>
+    <li>You have two options to resolve this:
+        <ul style="margin-top: 10px;">
+            <li><strong>Manual Override:</strong> Download the TA from the debug bundle, fix the issues manually, and re-upload through the system</li>
+            <li><strong>Contact Support:</strong> Reach out to your Splunk engineering team for assistance</li>
+        </ul>
+    </li>
+    <li>Once fixed, the system will re-run validation automatically</li>
+</ol>
+
+<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 15px; margin-top: 30px;">
+    <p style="margin: 0; color: #856404;">
+        <strong>Manual Override Instructions:</strong><br>
+        Visit the <a href="{{ frontend_url }}/requests/{{ request_id }}" style="color: #f47920;">request details page</a>
+        to upload a manually corrected version of the TA. The system will automatically validate your changes.
+    </p>
+</div>
+
+<div style="background-color: #f8f9fa; border-radius: 4px; padding: 15px; margin-top: 20px;">
+    <p style="margin: 0; font-size: 14px; color: #666666;">
+        <strong>Need Help?</strong> If you need assistance resolving the validation errors,
+        please contact your Splunk engineering team with the request ID and debug bundle.
+    </p>
+</div>
+
+<p style="margin-top: 30px; color: #666666;">
+    We apologize for the inconvenience. Our team is continuously improving the TA generation process.
+</p>
+{% endblock %}

@@ -32,6 +32,7 @@ celery_app.conf.update(
     task_routes={
         "generate_ta": {"queue": "ta_generation"},
         "validate_ta": {"queue": "validation"},
+        "send_notification": {"queue": "default"},
     },
 
     # Task time limits
@@ -73,6 +74,7 @@ def register_tasks():
     # Import tasks here to register them
     from backend.tasks import generate_ta_task  # noqa: F401
     from backend.tasks import validate_ta_task  # noqa: F401
+    from backend.tasks import send_notification_task  # noqa: F401
 
 
 # Auto-discover tasks when Celery starts

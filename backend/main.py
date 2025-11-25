@@ -17,6 +17,7 @@ from backend.api.auth import router as auth_router
 from backend.api.requests import router as requests_router
 from backend.api.approvals import router as approvals_router
 from backend.api.admin.knowledge import router as admin_knowledge_router
+from backend.api.users import router as users_router
 from backend.database import check_db_connection, dispose_engine
 
 
@@ -149,6 +150,7 @@ app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(requests_router, prefix=settings.api_prefix)
 app.include_router(approvals_router, prefix=settings.api_prefix)
 app.include_router(admin_knowledge_router, prefix=settings.api_prefix)
+app.include_router(users_router, prefix=settings.api_prefix)
 
 
 # Root endpoint

@@ -1,0 +1,41 @@
+Splunk TA Generator - Request Approved
+=======================================
+
+Hello {{ user_name }},
+
+Your TA generation request has been approved by the Splunk engineering team.
+
+REQUEST DETAILS
+---------------
+Request ID: {{ request_id }}
+Source System: {{ source_system }}
+Submission Date: {{ submission_date }}
+Approval Date: {{ approval_date }}
+
+APPROVAL INFORMATION
+--------------------
+Approved By: {{ approver_name }}
+{% if approval_comment %}Comment: {{ approval_comment }}{% endif %}
+
+WHAT HAPPENS NEXT?
+------------------
+TA generation is now in progress. The system will:
+
+1. Analyze your log samples using AI
+2. Generate appropriate Splunk configuration files
+3. Create a complete TA package structure
+4. Validate the generated TA in a Splunk sandbox environment
+
+You will receive another notification when the TA is ready or if any issues occur during generation.
+
+Estimated Processing Time: TA generation typically takes 10-30 minutes depending on the complexity of your log format and current system load.
+
+VIEW REQUEST STATUS
+-------------------
+{{ frontend_url }}/requests/{{ request_id }}
+
+Thank you for your patience. We'll notify you as soon as your TA is ready!
+
+---
+This is an automated notification from the Splunk TA Generator system.
+To manage your notification preferences, visit: {{ frontend_url }}/settings/notifications

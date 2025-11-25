@@ -23,6 +23,7 @@ from backend.core.exceptions import (
 from backend.integrations.object_storage_client import ObjectStorageClient
 from backend.integrations.pinecone_client import PineconeClient
 from backend.integrations.ollama_client import OllamaClient
+from backend.services.request_service import RequestService
 
 
 def get_token_from_header(authorization: str = Header(None)) -> str:
@@ -345,4 +346,51 @@ async def get_knowledge_service(
         knowledge_document_repository=knowledge_repository,
         storage_client=storage_client,
         pinecone_client=pinecone_client
+    )
+
+
+async def get_audit_service(
+    db: AsyncSession = Depends(get_db)
+) -> "AuditService":
+    """Get audit service instance with injected dependencies.
+
+    Args:
+        db: Database session
+
+    Returns:
+        AuditService instance with injected repositories
+    """
+    from backend.services.audit_service import AuditService
+    from backend.repositories.audit_log_repository import AuditLogRepository
+
+    audit_repo = AuditLogRepository(db)
+
+    return AuditService(audit_repository=audit_repo)
+
+
+async def get_notification_service(
+    db: AsyncSession = Depends(get_db)
+) -> "NotificationService":
+    """Get notification service instance with injected dependencies.
+
+    Args:
+        db: Database session
+
+    Returns:
+        NotificationService instance with injected repositories
+    """
+    from backend.services.notification_service import NotificationService
+    from backend.services.audit_service import AuditService
+    from backend.repositories.audit_log_repository import AuditLogRepository
+
+    user_repo = UserRepository(db)
+    request_repo = RequestRepository(db)
+    audit_repo = AuditLogRepository(db)
+    audit_service = AuditService(audit_repository=audit_repo)
+
+    return NotificationService(
+        user_repository=user_repo,
+        request_repository=request_repo,
+        audit_service=audit_service,
+        db=db
     )

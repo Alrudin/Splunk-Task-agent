@@ -22,6 +22,11 @@ flower>=2.0.1                       # Real-time Celery monitoring tool (optional
 httpx>=0.25.2                       # Async HTTP client for Ollama, Pinecone, and Splunk REST API calls
 tenacity>=8.2.3                     # Retry logic for external API calls
 
+# Notification System
+aiosmtplib>=3.0.0                   # Async SMTP client for sending email notifications
+jinja2>=3.1.2                       # Template engine for rendering HTML/text email bodies
+email-validator>=2.1.0              # Email address validation for webhook URLs and user emails
+
 # Docker Container Management
 docker>=7.0.0                       # Docker SDK for Python - container orchestration for Splunk sandbox
 

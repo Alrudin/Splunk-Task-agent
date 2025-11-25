@@ -1,0 +1,93 @@
+{% extends "email_base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Hello {{ user_name }},
+</div>
+
+<div class="message-box" style="border-left-color: #ffc107;">
+    <h2 style="margin-top: 0; color: #856404;">
+        <span class="status-badge status-warning">Rejected</span>
+    </h2>
+    <p style="font-size: 16px; margin-bottom: 0;">
+        Your TA generation request has been rejected by the Splunk engineering team.
+    </p>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Request Details</h3>
+<table class="details-table">
+    <tr>
+        <td>Request ID:</td>
+        <td><code>{{ request_id }}</code></td>
+    </tr>
+    <tr>
+        <td>Source System:</td>
+        <td>{{ source_system }}</td>
+    </tr>
+    <tr>
+        <td>Submission Date:</td>
+        <td>{{ submission_date }}</td>
+    </tr>
+    <tr>
+        <td>Rejection Date:</td>
+        <td>{{ rejection_date }}</td>
+    </tr>
+</table>
+
+<h3 style="color: #333333; margin-top: 30px;">Rejection Information</h3>
+<table class="details-table">
+    <tr>
+        <td>Rejected By:</td>
+        <td>{{ approver_name }}</td>
+    </tr>
+    <tr>
+        <td>Reason:</td>
+        <td style="color: #856404;">
+            <strong>{{ rejection_reason }}</strong>
+        </td>
+    </tr>
+</table>
+
+<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 15px; margin: 20px 0;">
+    <h4 style="margin-top: 0; color: #856404;">Why was my request rejected?</h4>
+    <p style="margin-bottom: 10px; color: #856404;">
+        The approver has provided the following reason for rejection:
+    </p>
+    <blockquote style="margin: 10px 0; padding: 10px; background-color: #fff; border-left: 3px solid #ffc107;">
+        {{ rejection_reason }}
+    </blockquote>
+    <p style="margin-top: 10px; margin-bottom: 0; color: #856404;">
+        Please review this feedback and address the issues before resubmitting your request.
+    </p>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Next Steps</h3>
+<ol style="padding-left: 20px; color: #666666;">
+    <li>Review the rejection reason provided above</li>
+    <li>Address the issues identified by the approver. Common reasons for rejection include:
+        <ul style="margin-top: 10px;">
+            <li>Insufficient or unclear log samples</li>
+            <li>Missing required information in the request</li>
+            <li>Log format not suitable for automated TA generation</li>
+            <li>Security or compliance concerns</li>
+        </ul>
+    </li>
+    <li>Prepare updated log samples or additional information as needed</li>
+    <li>Submit a new request with the corrected information</li>
+</ol>
+
+<div style="text-align: center; margin: 30px 0;">
+    <a href="{{ frontend_url }}/requests/{{ request_id }}" class="btn" style="background-color: #ffc107; color: #333333 !important;">View Request Details</a>
+</div>
+
+<div style="background-color: #f8f9fa; border-radius: 4px; padding: 15px; margin-top: 30px;">
+    <p style="margin: 0; font-size: 14px; color: #666666;">
+        <strong>Need Help?</strong> If you need clarification on the rejection reason or assistance with preparing a new request,
+        please contact your Splunk engineering team or the approver directly.
+    </p>
+</div>
+
+<p style="margin-top: 30px; color: #666666;">
+    We encourage you to address the feedback and resubmit your request. The TA Generator is here to help streamline your Splunk onboarding process.
+</p>
+{% endblock %}

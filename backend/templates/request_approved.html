@@ -1,0 +1,80 @@
+{% extends "email_base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Hello {{ user_name }},
+</div>
+
+<div class="message-box" style="border-left-color: #17a2b8;">
+    <h2 style="margin-top: 0; color: #17a2b8;">
+        <span class="status-badge status-info">Approved</span>
+    </h2>
+    <p style="font-size: 16px; margin-bottom: 0;">
+        Your TA generation request has been approved by the Splunk engineering team.
+    </p>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Request Details</h3>
+<table class="details-table">
+    <tr>
+        <td>Request ID:</td>
+        <td><code>{{ request_id }}</code></td>
+    </tr>
+    <tr>
+        <td>Source System:</td>
+        <td>{{ source_system }}</td>
+    </tr>
+    <tr>
+        <td>Submission Date:</td>
+        <td>{{ submission_date }}</td>
+    </tr>
+    <tr>
+        <td>Approval Date:</td>
+        <td>{{ approval_date }}</td>
+    </tr>
+</table>
+
+<h3 style="color: #333333; margin-top: 30px;">Approval Information</h3>
+<table class="details-table">
+    <tr>
+        <td>Approved By:</td>
+        <td>{{ approver_name }}</td>
+    </tr>
+    {% if approval_comment %}
+    <tr>
+        <td>Comment:</td>
+        <td style="font-style: italic;">{{ approval_comment }}</td>
+    </tr>
+    {% endif %}
+</table>
+
+<div style="background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 15px; margin: 20px 0;">
+    <h4 style="margin-top: 0; color: #0c5460;">What Happens Next?</h4>
+    <p style="margin-bottom: 10px; color: #0c5460;">
+        <strong>TA generation is now in progress.</strong> The system will:
+    </p>
+    <ol style="margin: 5px 0; padding-left: 20px; color: #0c5460;">
+        <li>Analyze your log samples using AI</li>
+        <li>Generate appropriate Splunk configuration files</li>
+        <li>Create a complete TA package structure</li>
+        <li>Validate the generated TA in a Splunk sandbox environment</li>
+    </ol>
+    <p style="margin-top: 10px; margin-bottom: 0; color: #0c5460;">
+        <strong>You will receive another notification when the TA is ready or if any issues occur during generation.</strong>
+    </p>
+</div>
+
+<div style="background-color: #f8f9fa; border-radius: 4px; padding: 15px; margin-top: 30px;">
+    <p style="margin: 0; font-size: 14px; color: #666666;">
+        <strong>Estimated Processing Time:</strong> TA generation typically takes 10-30 minutes depending on the complexity of your log format and current system load.
+    </p>
+</div>
+
+<div style="text-align: center; margin: 30px 0;">
+    <a href="{{ frontend_url }}/requests/{{ request_id }}" class="btn" style="background-color: #17a2b8;">View Request Status</a>
+</div>
+
+<p style="margin-top: 30px; color: #666666;">
+    Thank you for your patience. We'll notify you as soon as your TA is ready!
+</p>
+{% endblock %}

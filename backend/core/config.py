@@ -177,10 +177,22 @@ class Settings(BaseSettings):
         default=4,
         description="Number of concurrent worker processes"
     )
-    max_parallel_validations: int = Field(
-        default=3,
-        description="Maximum concurrent Splunk validation runs"
-    )
+    # Notification Settings
+    notification_enabled: bool = Field(default=True, description="Global toggle for notification system")
+    notification_from_name: str = Field(default="Splunk TA Generator", description="Display name in email 'From' field")
+
+    # SMTP Configuration
+    smtp_enabled: bool = Field(default=False, description="Enable email notifications via SMTP")
+    smtp_host: str = Field(default="smtp.example.com", description="SMTP server hostname")
+    smtp_port: int = Field(default=587, description="SMTP server port (587 for TLS, 465 for SSL, 25 for plain)")
+    smtp_user: Optional[str] = Field(default=None, description="SMTP authentication username")
+    smtp_password: Optional[str] = Field(default=None, description="SMTP authentication password")
+    smtp_from: str = Field(default="noreply@example.com", description="Email address for 'From' field")
+    smtp_use_tls: bool = Field(default=True, description="Use TLS for SMTP connection")
+
+    # Webhook Configuration
+    webhook_timeout: int = Field(default=10, description="Timeout for webhook HTTP requests in seconds")
+    webhook_retry_attempts: int = Field(default=3, description="Number of retry attempts for failed webhooks")
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -256,6 +268,22 @@ class Settings(BaseSettings):
             raise ValueError("MAX_PARALLEL_VALIDATIONS must be positive")
         return v
 
+    @field_validator("smtp_host")
+    @classmethod
+    def validate_smtp_config(cls, v: str, info) -> str:
+        """Validate SMTP configuration when enabled."""
+        if info.data.get("smtp_enabled") and (not v or v == "smtp.example.com"):
+            raise ValueError("SMTP_HOST must be set to a valid SMTP server when SMTP_ENABLED=true")
+        return v
+
+    @field_validator("smtp_from")
+    @classmethod
+    def validate_smtp_from(cls, v: str, info) -> str:
+        """Validate SMTP from email when enabled."""
+        if info.data.get("smtp_enabled") and (not v or v == "noreply@example.com"):
+            raise ValueError("SMTP_FROM must be set to a valid email address when SMTP_ENABLED=true")
+        return v
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""
@@ -285,6 +313,11 @@ class Settings(BaseSettings):
         if not self.blocked_web_domains:
             return []
         return [domain.strip().lower() for domain in self.blocked_web_domains.split(",") if domain.strip()]
+
+    @property
+    def smtp_connection_string(self) -> str:
+        """Get SMTP connection string for convenience."""
+        return f"{self.smtp_host}:{self.smtp_port}"
 
 
 # Singleton settings instance

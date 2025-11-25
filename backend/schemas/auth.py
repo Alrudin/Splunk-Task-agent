@@ -172,6 +172,10 @@ class UserResponse(BaseModel):
     roles: List[str] = Field(..., description="User roles")
     last_login: Optional[datetime] = Field(None, description="Last login timestamp")
     created_at: datetime = Field(..., description="Account creation timestamp")
+    # Notification preferences
+    email_notifications_enabled: bool = Field(default=True, description="Email notifications enabled")
+    webhook_url: Optional[str] = Field(None, description="Webhook URL for notifications")
+    notification_events: Optional[List[str]] = Field(None, description="Events to receive notifications for")
 
     model_config = ConfigDict(
         from_attributes=True,

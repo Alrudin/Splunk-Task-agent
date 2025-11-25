@@ -23,6 +23,7 @@ from backend.repositories.ta_revision_repository import TARevisionRepository
 from backend.repositories.validation_run_repository import ValidationRunRepository
 from backend.services.validation_service import ValidationError, ValidationService
 from backend.tasks.celery_app import celery_app
+from backend.tasks.send_notification_task import send_notification_task
 
 logger = structlog.get_logger(__name__)
 
@@ -236,9 +237,52 @@ async def _validate_ta_async(
             if final_status == ValidationStatus.PASSED:
                 await request_repo.update_status(request_id, RequestStatus.COMPLETED)
                 log.info("audit_validation_complete", action=AuditAction.VALIDATION_COMPLETE.value)
+
+                # Get request details for notification
+                request = await request_repo.get_by_id(request_id)
+                if request and request.created_by:
+                    # Send completion notification
+                    try:
+                        send_notification_task.apply_async(
+                            args=[
+                                str(request.created_by),
+                                "COMPLETED",
+                                str(request_id),
+                                {
+                                    "validation_summary": validation_report.get("summary", {}),
+                                    "ta_download_url": f"{settings.frontend_url}/requests/{request_id}/ta"
+                                }
+                            ],
+                            queue="default"
+                        )
+                        log.info("completion_notification_enqueued", user_id=str(request.created_by))
+                    except Exception as e:
+                        log.error("failed_to_enqueue_completion_notification", error=str(e))
             else:
                 await request_repo.update_status(request_id, RequestStatus.FAILED)
                 log.info("audit_validation_failed", action=AuditAction.VALIDATION_FAILED.value)
+
+                # Get request details for notification
+                request = await request_repo.get_by_id(request_id)
+                if request and request.created_by:
+                    # Send failure notification
+                    try:
+                        send_notification_task.apply_async(
+                            args=[
+                                str(request.created_by),
+                                "FAILED",
+                                str(request_id),
+                                {
+                                    "error_message": validation_report.get("error", "Validation failed"),
+                                    "validation_results": validation_report,
+                                    "debug_bundle_url": f"{settings.frontend_url}/requests/{request_id}/debug-bundle"
+                                }
+                            ],
+                            queue="default"
+                        )
+                        log.info("failure_notification_enqueued", user_id=str(request.created_by))
+                    except Exception as e:
+                        log.error("failed_to_enqueue_failure_notification", error=str(e))
 
             # Commit transaction
             await session.commit()
@@ -287,6 +331,26 @@ async def _validate_ta_async(
 
             await session.commit()
 
+            # Send failure notification
+            request = await request_repo.get_by_id(request_id)
+            if request and request.created_by:
+                try:
+                    send_notification_task.apply_async(
+                        args=[
+                            str(request.created_by),
+                            "FAILED",
+                            str(request_id),
+                            {
+                                "error_message": str(e),
+                                "debug_bundle_url": f"{settings.frontend_url}/requests/{request_id}/debug-bundle"
+                            }
+                        ],
+                        queue="default"
+                    )
+                    log.info("failure_notification_enqueued", user_id=str(request.created_by))
+                except Exception as notif_error:
+                    log.error("failed_to_enqueue_failure_notification", error=str(notif_error))
+
             log.info("audit_validation_failed", action=AuditAction.VALIDATION_FAILED.value)
 
             return {
@@ -327,6 +391,26 @@ async def _validate_ta_async(
                 await request_repo.update_status(request_id, RequestStatus.FAILED)
 
                 await session.commit()
+
+                # Send failure notification
+                request = await request_repo.get_by_id(request_id)
+                if request and request.created_by:
+                    try:
+                        send_notification_task.apply_async(
+                            args=[
+                                str(request.created_by),
+                                "FAILED",
+                                str(request_id),
+                                {
+                                    "error_message": str(e),
+                                    "debug_bundle_url": f"{settings.frontend_url}/requests/{request_id}/debug-bundle"
+                                }
+                            ],
+                            queue="default"
+                        )
+                        log.info("failure_notification_enqueued", user_id=str(request.created_by))
+                    except Exception as notif_error:
+                        log.error("failed_to_enqueue_failure_notification", error=str(notif_error))
             except Exception as commit_error:
                 log.error("failed_to_update_status_on_error", error=str(commit_error))
 

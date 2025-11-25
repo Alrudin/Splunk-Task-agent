@@ -1,0 +1,51 @@
+Splunk TA Generator - Request Rejected
+=======================================
+
+Hello {{ user_name }},
+
+Your TA generation request has been rejected by the Splunk engineering team.
+
+REQUEST DETAILS
+---------------
+Request ID: {{ request_id }}
+Source System: {{ source_system }}
+Submission Date: {{ submission_date }}
+Rejection Date: {{ rejection_date }}
+
+REJECTION INFORMATION
+---------------------
+Rejected By: {{ approver_name }}
+Reason: {{ rejection_reason }}
+
+WHY WAS MY REQUEST REJECTED?
+-----------------------------
+The approver has provided the following reason for rejection:
+
+"{{ rejection_reason }}"
+
+Please review this feedback and address the issues before resubmitting your request.
+
+NEXT STEPS
+----------
+1. Review the rejection reason provided above
+2. Address the issues identified by the approver. Common reasons for rejection include:
+   - Insufficient or unclear log samples
+   - Missing required information in the request
+   - Log format not suitable for automated TA generation
+   - Security or compliance concerns
+3. Prepare updated log samples or additional information as needed
+4. Submit a new request with the corrected information
+
+VIEW REQUEST DETAILS
+--------------------
+{{ frontend_url }}/requests/{{ request_id }}
+
+Need Help?
+----------
+If you need clarification on the rejection reason or assistance with preparing a new request, please contact your Splunk engineering team or the approver directly.
+
+We encourage you to address the feedback and resubmit your request. The TA Generator is here to help streamline your Splunk onboarding process.
+
+---
+This is an automated notification from the Splunk TA Generator system.
+To manage your notification preferences, visit: {{ frontend_url }}/settings/notifications

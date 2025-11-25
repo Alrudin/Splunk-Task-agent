@@ -1,0 +1,44 @@
+Splunk TA Generator - Request Completed
+========================================
+
+Hello {{ user_name }},
+
+Your TA generation request has been completed successfully!
+
+REQUEST DETAILS
+---------------
+Request ID: {{ request_id }}
+Source System: {{ source_system }}
+Submission Date: {{ submission_date }}
+Completion Date: {{ completion_date }}
+
+{% if validation_summary %}
+VALIDATION RESULTS
+------------------
+Status: PASSED
+{% if validation_summary.event_count %}Events Processed: {{ validation_summary.event_count }}{% endif %}
+{% if validation_summary.field_coverage %}Field Coverage: {{ "%.1f"|format(validation_summary.field_coverage * 100) }}%{% endif %}
+{% endif %}
+
+DOWNLOAD YOUR TA PACKAGE
+-------------------------
+{{ ta_download_url }}
+
+NEXT STEPS
+----------
+1. Download the generated TA package using the link above
+2. Review the configuration files to ensure they meet your requirements
+3. Deploy the TA to your Splunk environment following your standard deployment process
+4. Test the TA with your production data
+5. If you encounter any issues, you can upload a manual override through the system
+
+Need Help?
+----------
+If you have any questions or issues with the generated TA, please contact your Splunk engineering team or visit the request details page:
+{{ frontend_url }}/requests/{{ request_id }}
+
+Thank you for using the Splunk TA Generator!
+
+---
+This is an automated notification from the Splunk TA Generator system.
+To manage your notification preferences, visit: {{ frontend_url }}/settings/notifications

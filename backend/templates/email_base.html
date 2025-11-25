@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ subject }}</title>
+    <style>
+        /* Email-safe CSS - inline styles for better compatibility */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+        }
+        .header {
+            background: linear-gradient(135deg, #f47920 0%, #e31c23 100%);
+            color: #ffffff;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .header .tagline {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        .content {
+            padding: 30px 20px;
+        }
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #333333;
+        }
+        .message-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #f47920;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .details-table td {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .details-table td:first-child {
+            font-weight: 600;
+            color: #666666;
+            width: 35%;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #f47920;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 600;
+            margin: 20px 0;
+        }
+        .btn:hover {
+            background-color: #e06818;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666666;
+            border-top: 1px solid #e0e0e0;
+        }
+        .footer a {
+            color: #f47920;
+            text-decoration: none;
+        }
+        .footer .unsubscribe {
+            margin-top: 10px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .status-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        /* Mobile responsiveness */
+        @media only screen and (max-width: 600px) {
+            .container {
+                width: 100% !important;
+            }
+            .content {
+                padding: 20px 15px;
+            }
+            .header {
+                padding: 20px 15px;
+            }
+            .header h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Splunk TA Generator</h1>
+            <div class="tagline">AI-Assisted Technology Add-on Creation</div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="content">
+            {% block content %}
+            <!-- Content will be inserted here by child templates -->
+            {% endblock %}
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>
+                This is an automated notification from the Splunk TA Generator system.
+            </p>
+            <p>
+                <strong>{{ app_name }} v{{ app_version }}</strong><br>
+                Internal Tool - For authorized use only
+            </p>
+            <div class="unsubscribe">
+                <a href="{{ frontend_url }}/settings/notifications">Manage Notification Preferences</a>
+            </div>
+            <p style="margin-top: 15px; font-size: 11px; color: #999999;">
+                If you believe you received this email in error, please contact your system administrator.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

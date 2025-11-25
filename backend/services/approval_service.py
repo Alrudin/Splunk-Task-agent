@@ -21,6 +21,7 @@ from backend.core.exceptions import (
     InsufficientPermissionsError,
 )
 from backend.tasks.generate_ta_task import generate_ta
+from backend.tasks.send_notification_task import send_notification_task
 
 logger = structlog.get_logger(__name__)
 
@@ -252,6 +253,35 @@ class ApprovalService:
                 approver_id=str(approver_user.id),
             )
 
+        # Send approval notification to requestor
+        if request.created_by:
+            try:
+                from datetime import datetime
+                send_notification_task.apply_async(
+                    args=[
+                        str(request.created_by),
+                        "APPROVED",
+                        str(request_id),
+                        {
+                            "approver_name": approver_user.full_name or approver_user.username,
+                            "approval_comment": comment,
+                            "approval_date": updated_request.approved_at.isoformat() if updated_request.approved_at else datetime.utcnow().isoformat()
+                        }
+                    ],
+                    queue="default"
+                )
+                logger.info(
+                    "Approval notification enqueued",
+                    request_id=str(request_id),
+                    user_id=str(request.created_by)
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to enqueue approval notification",
+                    request_id=str(request_id),
+                    error=str(e)
+                )
+
         return updated_request
 
     async def reject_request(
@@ -335,6 +365,35 @@ class ApprovalService:
             approver_id=str(approver_user.id),
             approver_username=approver_user.username,
         )
+
+        # Send rejection notification to requestor
+        if request.created_by:
+            try:
+                from datetime import datetime
+                send_notification_task.apply_async(
+                    args=[
+                        str(request.created_by),
+                        "REJECTED",
+                        str(request_id),
+                        {
+                            "approver_name": approver_user.full_name or approver_user.username,
+                            "rejection_reason": reason,
+                            "rejection_date": updated_request.rejected_at.isoformat() if updated_request.rejected_at else datetime.utcnow().isoformat()
+                        }
+                    ],
+                    queue="default"
+                )
+                logger.info(
+                    "Rejection notification enqueued",
+                    request_id=str(request_id),
+                    user_id=str(request.created_by)
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to enqueue rejection notification",
+                    request_id=str(request_id),
+                    error=str(e)
+                )
 
         return updated_request
 

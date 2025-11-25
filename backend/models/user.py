@@ -6,6 +6,7 @@ from typing import Optional, List
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin
@@ -31,6 +32,11 @@ class User(Base, TimestampMixin):
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Notification preferences
+    email_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    webhook_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    notification_events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # List of event types
 
     # SSO fields
     auth_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 'local', 'saml', 'oauth', 'oidc'

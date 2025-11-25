@@ -1,0 +1,75 @@
+{% extends "email_base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Hello {{ user_name }},
+</div>
+
+<div class="message-box" style="border-left-color: #28a745;">
+    <h2 style="margin-top: 0; color: #28a745;">
+        <span class="status-badge status-success">Success</span>
+    </h2>
+    <p style="font-size: 16px; margin-bottom: 0;">
+        Your TA generation request has been completed successfully!
+    </p>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Request Details</h3>
+<table class="details-table">
+    <tr>
+        <td>Request ID:</td>
+        <td><code>{{ request_id }}</code></td>
+    </tr>
+    <tr>
+        <td>Source System:</td>
+        <td>{{ source_system }}</td>
+    </tr>
+    <tr>
+        <td>Submission Date:</td>
+        <td>{{ submission_date }}</td>
+    </tr>
+    <tr>
+        <td>Completion Date:</td>
+        <td>{{ completion_date }}</td>
+    </tr>
+</table>
+
+{% if validation_summary %}
+<h3 style="color: #333333; margin-top: 30px;">Validation Results</h3>
+<div style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; padding: 15px; margin: 15px 0;">
+    <p style="margin: 5px 0;"><strong>Status:</strong> <span style="color: #155724;">PASSED</span></p>
+    {% if validation_summary.event_count %}
+    <p style="margin: 5px 0;"><strong>Events Processed:</strong> {{ validation_summary.event_count }}</p>
+    {% endif %}
+    {% if validation_summary.field_coverage %}
+    <p style="margin: 5px 0;"><strong>Field Coverage:</strong> {{ "%.1f"|format(validation_summary.field_coverage * 100) }}%</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<div style="text-align: center; margin: 30px 0;">
+    <a href="{{ ta_download_url }}" class="btn">Download TA Package</a>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Next Steps</h3>
+<ol style="padding-left: 20px; color: #666666;">
+    <li>Download the generated TA package using the button above</li>
+    <li>Review the configuration files to ensure they meet your requirements</li>
+    <li>Deploy the TA to your Splunk environment following your standard deployment process</li>
+    <li>Test the TA with your production data</li>
+    <li>If you encounter any issues, you can upload a manual override through the system</li>
+</ol>
+
+<div style="background-color: #f8f9fa; border-radius: 4px; padding: 15px; margin-top: 30px;">
+    <p style="margin: 0; font-size: 14px; color: #666666;">
+        <strong>Need Help?</strong> If you have any questions or issues with the generated TA,
+        please contact your Splunk engineering team or visit the
+        <a href="{{ frontend_url }}/requests/{{ request_id }}" style="color: #f47920;">request details page</a>
+        for more information.
+    </p>
+</div>
+
+<p style="margin-top: 30px; color: #666666;">
+    Thank you for using the Splunk TA Generator!
+</p>
+{% endblock %}
