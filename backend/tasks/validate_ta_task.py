@@ -253,7 +253,7 @@ async def _validate_ta_async(
                                     "ta_download_url": f"{settings.frontend_url}/requests/{request_id}/ta"
                                 }
                             ],
-                            queue="default"
+                            queue="notifications"
                         )
                         log.info("completion_notification_enqueued", user_id=str(request.created_by))
                     except Exception as e:
@@ -278,7 +278,7 @@ async def _validate_ta_async(
                                     "debug_bundle_url": f"{settings.frontend_url}/requests/{request_id}/debug-bundle"
                                 }
                             ],
-                            queue="default"
+                            queue="notifications"
                         )
                         log.info("failure_notification_enqueued", user_id=str(request.created_by))
                     except Exception as e:
@@ -406,7 +406,7 @@ async def _validate_ta_async(
                                     "debug_bundle_url": f"{settings.frontend_url}/requests/{request_id}/debug-bundle"
                                 }
                             ],
-                            queue="default"
+                            queue="notifications"
                         )
                         log.info("failure_notification_enqueued", user_id=str(request.created_by))
                     except Exception as notif_error:

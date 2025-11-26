@@ -12,6 +12,7 @@ sqlalchemy>=2.0.23                  # SQL toolkit and ORM
 alembic>=1.13.0                     # Database migration tool
 psycopg2-binary>=2.9.9              # PostgreSQL adapter
 asyncpg>=0.29.0                     # Async PostgreSQL driver for SQLAlchemy
+greenlet>=3.0.0                     # Required for SQLAlchemy async operations
 
 # Task Queue & Background Jobs
 celery>=5.3.4                       # Distributed task queue for async processing

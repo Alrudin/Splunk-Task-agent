@@ -32,7 +32,7 @@ celery_app.conf.update(
     task_routes={
         "generate_ta": {"queue": "ta_generation"},
         "validate_ta": {"queue": "validation"},
-        "send_notification": {"queue": "default"},
+        "send_notification": {"queue": "notifications"},
     },
 
     # Task time limits
@@ -61,6 +61,7 @@ celery_app.conf.task_queues = {
     "default": {"exchange": "default", "routing_key": "default"},
     "ta_generation": {"exchange": "ta_generation", "routing_key": "ta_generation"},
     "validation": {"exchange": "validation", "routing_key": "validation"},
+    "notifications": {"exchange": "notifications", "routing_key": "notifications"},
 }
 
 # Default queue for tasks without explicit routing

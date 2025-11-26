@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { getPendingApprovals, getApprovalStatistics } from '../api/approvals';
 import { useAuth } from '../contexts/AuthContext';
 import { formatDateTime, formatBytes } from '../utils/formatters';
+import Layout from '../components/layout/Layout';
 
 const ApproverDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -111,8 +112,9 @@ const ApproverDashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <Layout>
+      <div className="py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <div className="flex justify-between items-center">
@@ -293,8 +295,9 @@ const ApproverDashboard: React.FC = () => {
             </div>
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

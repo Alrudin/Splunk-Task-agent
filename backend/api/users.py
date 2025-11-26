@@ -147,13 +147,13 @@ async def test_notification(
             args=[
                 str(current_user.id),
                 "TEST",
-                f"test_{datetime.utcnow().isoformat()}",
+                None,  # No request_id for test notifications
                 {
                     "message": "This is a test notification from Splunk TA Generator",
                     "timestamp": datetime.utcnow().isoformat(),
                 },
             ],
-            queue="default",
+            queue="notifications",
         )
 
         return {

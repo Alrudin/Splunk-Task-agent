@@ -7,12 +7,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import NewRequest from './pages/NewRequest';
 import ApproverDashboard from './pages/ApproverDashboard';
 import ApprovalDetail from './pages/ApprovalDetail';
 import KnowledgeUpload from './pages/Admin/KnowledgeUpload';
+import TAOverride from './pages/TAOverride';
+import UserSettings from './pages/UserSettings';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -27,29 +30,57 @@ const queryClient = new QueryClient({
 // Placeholder components for protected routes
 function Dashboard() {
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
-      <p className="mt-4 text-gray-600">Welcome to the Splunk TA Generator!</p>
-    </div>
+    <Layout>
+      <div className="p-8">
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <p className="mt-4 text-gray-600">Welcome to the Splunk TA Generator!</p>
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-gray-900">Quick Actions</h2>
+            <ul className="mt-4 space-y-2">
+              <li>
+                <a href="/requests/new" className="text-indigo-600 hover:text-indigo-800">
+                  Create New Request →
+                </a>
+              </li>
+              <li>
+                <a href="/requests" className="text-indigo-600 hover:text-indigo-800">
+                  View My Requests →
+                </a>
+              </li>
+              <li>
+                <a href="/settings/notifications" className="text-indigo-600 hover:text-indigo-800">
+                  Configure Notifications →
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </Layout>
   );
 }
 
 function Requests() {
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold">Requests</h1>
-      <p className="mt-4 text-gray-600">View and manage your TA generation requests.</p>
-    </div>
+    <Layout>
+      <div className="p-8">
+        <h1 className="text-3xl font-bold">Requests</h1>
+        <p className="mt-4 text-gray-600">View and manage your TA generation requests.</p>
+      </div>
+    </Layout>
   );
 }
 
 
 function Admin() {
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold">Admin Panel</h1>
-      <p className="mt-4 text-gray-600">System administration and configuration.</p>
-    </div>
+    <Layout>
+      <div className="p-8">
+        <h1 className="text-3xl font-bold">Admin Panel</h1>
+        <p className="mt-4 text-gray-600">System administration and configuration.</p>
+      </div>
+    </Layout>
   );
 }
 
@@ -150,17 +181,18 @@ function App() {
               }
             />
             <Route
-<<<<<<< HEAD
-              path="/admin/knowledge"
-              element={
-                <ProtectedRoute requiredAnyRole={['ADMIN', 'KNOWLEDGE_MANAGER']}>
-                  <KnowledgeUpload />
-=======
               path="/requests/:requestId/ta-override"
               element={
                 <ProtectedRoute requiredAnyRole={['APPROVER', 'ADMIN']}>
                   <TAOverride />
->>>>>>> origin/main
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/notifications"
+              element={
+                <ProtectedRoute>
+                  <UserSettings />
                 </ProtectedRoute>
               }
             />

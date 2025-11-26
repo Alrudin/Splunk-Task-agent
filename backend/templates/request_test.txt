@@ -1,0 +1,42 @@
+Splunk TA Generator - Test Notification
+========================================
+
+Hello {{ user_name }},
+
+This is a test notification from the Splunk TA Generator system.
+
+NOTIFICATION SETTINGS TEST
+--------------------------
+You are receiving this test notification because you requested it from your notification settings page. This confirms that your notification preferences are working correctly.
+
+YOUR CURRENT SETTINGS
+---------------------
+Email Notifications: Enabled
+Email Address: {{ user_email }}
+{% if webhook_url %}Webhook URL: {{ webhook_url[:50] }}{% if webhook_url|length > 50 %}...{% endif %}{% endif %}
+Test Timestamp: {{ timestamp }}
+
+{% if message %}
+TEST MESSAGE
+------------
+{{ message }}
+{% endif %}
+
+WHAT NOTIFICATIONS WILL I RECEIVE?
+-----------------------------------
+Based on your settings, you will receive notifications for the following events:
+- Request approval/rejection decisions
+- TA generation completion
+- Validation success or failure
+- Manual override notifications
+
+MANAGE PREFERENCES
+------------------
+Visit the following URL to manage your notification preferences:
+{{ frontend_url }}/settings/notifications
+
+If you did not request this test notification, please review your account security settings.
+
+---
+This is an automated notification from the Splunk TA Generator system.
+To manage your notification preferences, visit: {{ frontend_url }}/settings/notifications

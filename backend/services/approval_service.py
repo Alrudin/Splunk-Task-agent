@@ -268,7 +268,7 @@ class ApprovalService:
                             "approval_date": updated_request.approved_at.isoformat() if updated_request.approved_at else datetime.utcnow().isoformat()
                         }
                     ],
-                    queue="default"
+                    queue="notifications"
                 )
                 logger.info(
                     "Approval notification enqueued",
@@ -381,7 +381,7 @@ class ApprovalService:
                             "rejection_date": updated_request.rejected_at.isoformat() if updated_request.rejected_at else datetime.utcnow().isoformat()
                         }
                     ],
-                    queue="default"
+                    queue="notifications"
                 )
                 logger.info(
                     "Rejection notification enqueued",

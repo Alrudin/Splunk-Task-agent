@@ -1,0 +1,74 @@
+{% extends "email_base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Hello {{ user_name }},
+</div>
+
+<div class="message-box" style="border-left-color: #17a2b8;">
+    <h2 style="margin-top: 0; color: #17a2b8;">
+        <span class="status-badge status-info">Test</span>
+    </h2>
+    <p style="font-size: 16px; margin-bottom: 0;">
+        This is a test notification from the Splunk TA Generator system.
+    </p>
+</div>
+
+<h3 style="color: #333333; margin-top: 30px;">Notification Settings Test</h3>
+<p style="color: #666666;">
+    You are receiving this test notification because you requested it from your notification settings page.
+    This confirms that your notification preferences are working correctly.
+</p>
+
+<h3 style="color: #333333; margin-top: 30px;">Your Current Settings</h3>
+<table class="details-table">
+    <tr>
+        <td>Email Notifications:</td>
+        <td><span style="color: #28a745;">Enabled</span></td>
+    </tr>
+    <tr>
+        <td>Email Address:</td>
+        <td>{{ user_email }}</td>
+    </tr>
+    {% if webhook_url %}
+    <tr>
+        <td>Webhook URL:</td>
+        <td><code style="font-size: 12px;">{{ webhook_url[:50] }}{% if webhook_url|length > 50 %}...{% endif %}</code></td>
+    </tr>
+    {% endif %}
+    <tr>
+        <td>Test Timestamp:</td>
+        <td>{{ timestamp }}</td>
+    </tr>
+</table>
+
+{% if message %}
+<h3 style="color: #333333; margin-top: 30px;">Test Message</h3>
+<div style="background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 15px; margin: 15px 0;">
+    <p style="margin: 0; color: #0c5460;">
+        {{ message }}
+    </p>
+</div>
+{% endif %}
+
+<div style="background-color: #f8f9fa; border-radius: 4px; padding: 15px; margin-top: 30px;">
+    <h4 style="margin-top: 0; color: #333333;">What Notifications Will I Receive?</h4>
+    <p style="margin: 10px 0; font-size: 14px; color: #666666;">
+        Based on your settings, you will receive notifications for the following events:
+    </p>
+    <ul style="margin: 10px 0; padding-left: 20px; color: #666666; font-size: 14px;">
+        <li>Request approval/rejection decisions</li>
+        <li>TA generation completion</li>
+        <li>Validation success or failure</li>
+        <li>Manual override notifications</li>
+    </ul>
+</div>
+
+<div style="text-align: center; margin: 30px 0;">
+    <a href="{{ frontend_url }}/settings/notifications" class="btn" style="background-color: #17a2b8;">Manage Preferences</a>
+</div>
+
+<p style="margin-top: 30px; color: #666666;">
+    If you did not request this test notification, please review your account security settings.
+</p>
+{% endblock %}

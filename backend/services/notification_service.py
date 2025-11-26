@@ -95,6 +95,11 @@ class NotificationService:
             context["user_email"] = user.email
             context["frontend_url"] = settings.frontend_url
 
+            # Ensure required template fields are set
+            context.setdefault("subject", subject)
+            context.setdefault("app_name", settings.app_name)
+            context.setdefault("app_version", settings.app_version)
+
             success = False
             errors = []
 
@@ -146,10 +151,10 @@ class NotificationService:
             }
 
             await self.audit_service.log_action(
-                action=audit_action,
                 user_id=user_id,
-                resource_id=context.get("request_id"),
-                resource_type="request",
+                action=audit_action,
+                entity_type="request",
+                entity_id=context.get("request_id"),
                 details=audit_details
             )
 

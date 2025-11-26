@@ -14,7 +14,11 @@
       "Bash(alembic revision:*)",
       "Bash(rm:*)",
       "Bash(DATABASE_URL=\"postgresql+asyncpg://user:password@localhost:5432/splunk_ta_generator\" alembic revision:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(alembic history:*)",
+      "Bash(alembic current:*)",
+      "Bash(PYTHONPATH=/Users/johan/src/Splunk-Task-agent alembic current:*)",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "ask": []

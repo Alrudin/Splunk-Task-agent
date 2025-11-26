@@ -1,7 +1,7 @@
 """Add notification preferences to user
 
 Revision ID: 002_notification_prefs
-Revises: 001_create_initial_schema_for_all_models
+Revises: 001
 Create Date: 2025-11-25 12:00:00
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '002_notification_prefs'
-down_revision = '001_create_initial_schema_for_all_models'
+down_revision = '001'
 branch_labels = None
 depends_on = None
 
@@ -33,10 +33,10 @@ def upgrade():
                   nullable=True)
     )
 
-    # Add notification_events column (JSON array)
+    # Add notification_events column (JSONB array)
     op.add_column('users',
         sa.Column('notification_events',
-                  postgresql.JSON(astext_type=sa.Text()),
+                  postgresql.JSONB(),
                   nullable=True)
     )
 

@@ -69,7 +69,7 @@ def send_notification_task(
     self,
     user_id: str,
     event_type: str,
-    request_id: str,
+    request_id: Optional[str],
     context: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
@@ -124,7 +124,7 @@ async def _send_notification_async(
     task_instance: SendNotificationTask,
     user_id: str,
     event_type: str,
-    request_id: str,
+    request_id: Optional[str],
     context: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
@@ -167,38 +167,49 @@ async def _send_notification_async(
                     "user_id": user_id
                 }
 
-            request = await request_repo.get_by_id(request_id)
-            if not request:
-                logger.error(f"Request {request_id} not found")
-                return {
-                    "success": False,
-                    "error": "Request not found",
-                    "request_id": request_id
-                }
+            # Skip request lookup for TEST events or when request_id is None
+            request = None
+            if request_id and event_type != "TEST":
+                request = await request_repo.get_by_id(request_id)
+                if not request:
+                    logger.error(f"Request {request_id} not found")
+                    return {
+                        "success": False,
+                        "error": "Request not found",
+                        "request_id": request_id
+                    }
 
             # Build notification context
             notification_context = {
                 "request_id": request_id,
-                "source_system": request.source_system,
-                "submission_date": request.created_at.isoformat() if request.created_at else None,
                 "app_name": settings.app_name,
                 "app_version": settings.app_version,
                 **context
             }
 
+            # Add request details if available
+            if request:
+                notification_context.update({
+                    "source_system": request.source_system,
+                    "submission_date": request.created_at.isoformat() if request.created_at else None,
+                })
+
             # Add event-specific context
-            if event_type == "COMPLETED":
+            if event_type == "COMPLETED" and request:
                 notification_context["completion_date"] = request.updated_at.isoformat() if request.updated_at else None
                 if "ta_download_url" not in notification_context:
                     notification_context["ta_download_url"] = f"{settings.frontend_url}/requests/{request_id}/ta"
-            elif event_type == "FAILED":
+            elif event_type == "FAILED" and request:
                 notification_context["failure_date"] = request.updated_at.isoformat() if request.updated_at else None
                 if "debug_bundle_url" not in notification_context:
                     notification_context["debug_bundle_url"] = f"{settings.frontend_url}/requests/{request_id}/debug-bundle"
-            elif event_type == "APPROVED":
+            elif event_type == "APPROVED" and request:
                 notification_context["approval_date"] = request.approved_at.isoformat() if request.approved_at else None
-            elif event_type == "REJECTED":
+            elif event_type == "REJECTED" and request:
                 notification_context["rejection_date"] = request.rejected_at.isoformat() if request.rejected_at else None
+            elif event_type == "TEST":
+                # For TEST events, add test-specific context
+                notification_context["is_test"] = True
 
             # Initialize notification service
             notification_service = NotificationService(
@@ -209,13 +220,18 @@ async def _send_notification_async(
             )
 
             # Determine subject line based on event type
-            subject_map = {
-                "COMPLETED": f"TA Generation Completed - {request.source_system}",
-                "FAILED": f"TA Generation Failed - {request.source_system}",
-                "APPROVED": f"Request Approved - {request.source_system}",
-                "REJECTED": f"Request Rejected - {request.source_system}"
-            }
-            subject = subject_map.get(event_type, f"Request Update - {request.source_system}")
+            if request:
+                subject_map = {
+                    "COMPLETED": f"TA Generation Completed - {request.source_system}",
+                    "FAILED": f"TA Generation Failed - {request.source_system}",
+                    "APPROVED": f"Request Approved - {request.source_system}",
+                    "REJECTED": f"Request Rejected - {request.source_system}"
+                }
+                subject = subject_map.get(event_type, f"Request Update - {request.source_system}")
+            elif event_type == "TEST":
+                subject = "Test Notification - Splunk TA Generator"
+            else:
+                subject = f"Notification - {event_type}"
 
             # Send notification
             success = await notification_service.send_notification(
@@ -247,10 +263,10 @@ async def _send_notification_async(
                 audit_repo = AuditLogRepository(db)
                 audit_service = AuditService(audit_repo)
                 await audit_service.log_action(
-                    action=AuditAction.NOTIFICATION_FAILED,
                     user_id=user_id,
-                    resource_id=request_id,
-                    resource_type="request",
+                    action=AuditAction.NOTIFICATION_FAILED,
+                    entity_type="request",
+                    entity_id=request_id,
                     details={
                         "event_type": event_type,
                         "error": str(e)
